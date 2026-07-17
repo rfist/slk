@@ -146,6 +146,10 @@ var reduceIO reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
 		_ = m
 		return toastWithClear(a, "Can only delete your own messages", 2*time.Second), true
 
+	case editorFinishedMsg:
+		a.applyEditorResult(m)
+		return nil, true
+
 	case ToastMsg:
 		return toastWithClear(a, m.Text, 3*time.Second), true
 

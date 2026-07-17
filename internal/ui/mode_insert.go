@@ -128,6 +128,12 @@ func handleInsertMode(a *App, msg tea.KeyMsg) tea.Cmd {
 		target.Reset()
 		return nil
 	}
+	// Ctrl+E: hand the draft to $VISUAL/$EDITOR (see editor.go). The
+	// TUI suspends until the editor exits; the round-trip result comes
+	// back as editorFinishedMsg.
+	if code == 'e' && mod == tea.ModCtrl {
+		return a.beginEditorCompose()
+	}
 	// If a compose-overlay picker (emoji / @mention / #channel)
 	// is active, let it own Up/Down so users can navigate the
 	// suggestion list. Without this guard, the jump-to-start/end
