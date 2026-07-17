@@ -112,6 +112,14 @@ var reduceIO reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
 		_ = m
 		return toastWithClear(a, "Failed to copy link", 2*time.Second), true
 
+	case statusbar.TextCopiedMsg:
+		_ = m
+		return toastWithClear(a, "Copied message text", 2*time.Second), true
+
+	case statusbar.TextCopyFailedMsg:
+		_ = m
+		return toastWithClear(a, "Failed to copy text", 2*time.Second), true
+
 	case statusbar.MarkedUnreadMsg:
 		_ = m
 		return toastWithClear(a, "Marked unread", 2*time.Second), true

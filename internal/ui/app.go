@@ -1004,6 +1004,53 @@ func (a *App) copyPermalinkOfSelected() tea.Cmd {
 	}
 }
 
+// yankTextOfSelected implements the `y` keybinding: copy the selected
+// message's (or thread reply's) text to the clipboard as plain text.
+// Wire-form entities are flattened the same way search snippets are
+// (<@U1> -> @name, <mailto:a@b|a@b> -> a@b) so the paste target gets
+// readable text, not Slack markup.
+func (a *App) yankTextOfSelected() tea.Cmd {
+	var text string
+	switch a.focusedPanel {
+	case PanelMessages:
+		msg, ok := a.messagepane.SelectedMessage()
+		if !ok {
+			return nil
+		}
+		text = msg.Text
+	case PanelThread:
+		reply := a.threadPanel.SelectedReply()
+		if reply == nil {
+			return nil
+		}
+		text = reply.Text
+	default:
+		return nil
+	}
+	if text == "" {
+		return nil
+	}
+	resolveUser := func(id string) (string, bool) {
+		name, ok := a.userNames[id]
+		return name, ok
+	}
+	resolveChannel := func(id string) (string, bool) {
+		name, ok := a.channelNames[id]
+		return name, ok
+	}
+	flattened := messages.FlattenMrkdwn(text, resolveUser, resolveChannel)
+
+	clipboardAvailable := a.clipboardAvailable
+	write := a.clipboardWrite
+	return func() tea.Msg {
+		if !clipboardAvailable {
+			return statusbar.TextCopyFailedMsg{}
+		}
+		_ = write(clipboard.FmtText, []byte(flattened))
+		return statusbar.TextCopiedMsg{}
+	}
+}
+
 // openLinksOfSelected implements the `o` keybinding: collect the
 // links in the selected message (messages pane or thread panel).
 // 0 links -> toast; 1 link -> dispatch OpenLinkMsg directly; 2+ ->
