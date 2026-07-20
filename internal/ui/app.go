@@ -212,6 +212,10 @@ type App struct {
 	emojiCustoms map[string]string
 	channelNames map[string]string
 
+	// buildInfo is the human-readable build identity ("slk dev
+	// (abc1234)") shown by :version. Set once at startup by main.
+	buildInfo string
+
 	// externalUsers tracks which user IDs are Slack Connect / shared-channel
 	// guests. Populated by main.go via SetExternalUsers as users are
 	// resolved. Read by SetUserNames when building the mention-picker User
@@ -2218,6 +2222,11 @@ func openURLCmd(url string) tea.Cmd {
 }
 
 // SetUserNames passes the user ID -> display name map to the message pane for mention resolution.
+// SetBuildInfo records the build identity string shown by :version.
+func (a *App) SetBuildInfo(info string) {
+	a.buildInfo = info
+}
+
 func (a *App) SetUserNames(names map[string]string) {
 	a.userNames = names
 	a.threadsView.SetUserNames(names)

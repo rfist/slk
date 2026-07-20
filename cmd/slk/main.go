@@ -614,6 +614,7 @@ func run() error {
 	// Create app
 	app := ui.NewApp()
 	app.SetHelpFooter(versionpkg.ModalFooter(version))
+	app.SetBuildInfo(fmt.Sprintf("slk %s (commit %s, built %s)", version, commit, date))
 	app.SetClipboardAvailable(clipboardOK)
 	if useWaylandClipboard {
 		app.SetClipboardReader(ui.WaylandClipboardReader())

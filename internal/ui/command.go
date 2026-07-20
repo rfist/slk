@@ -25,12 +25,24 @@ type commandFunc func(a *App, args []string) tea.Cmd
 // commands maps a command name to its handler. Names are matched
 // exactly (no prefix matching); aliases get their own entries.
 var commands = map[string]commandFunc{
-	"ws":   cmdWorkspaceFinder,
-	"sp":   cmdSplit,
-	"vsp":  cmdVSplit,
-	"q":    cmdCloseWindow,
-	"only": cmdOnlyWindow,
-	"on":   cmdOnlyWindow,
+	"ws":      cmdWorkspaceFinder,
+	"sp":      cmdSplit,
+	"vsp":     cmdVSplit,
+	"q":       cmdCloseWindow,
+	"only":    cmdOnlyWindow,
+	"on":      cmdOnlyWindow,
+	"version": cmdVersion,
+}
+
+// cmdVersion toasts the running binary's build info (set by main via
+// SetBuildInfo from the ldflags-injected version vars) — the in-TUI
+// way to tell a dev build from an installed release.
+func cmdVersion(a *App, _ []string) tea.Cmd {
+	info := a.buildInfo
+	if info == "" {
+		info = "slk (unknown build)"
+	}
+	return toastWithClear(a, info, 5*time.Second)
 }
 
 // cmdSplit / cmdVSplit create a stacked / side-by-side split of the
