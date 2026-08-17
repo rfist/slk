@@ -910,6 +910,7 @@ func run() error {
 	imgpkg.KittyOutput = terminalOutput.SideChannel()
 	app.SetSixelFrameStore(sixelFrames)
 	app.SetHelpFooter(versionpkg.ModalFooter(version))
+	app.SetBuildInfo(fmt.Sprintf("slk %s (commit %s, built %s)", version, commit, date))
 	app.SetClipboardAvailable(clipboardOK)
 	if sr := notify.NewStatusReporter(cfg.Notifications.StatusCommand); sr != nil {
 		// Enqueue never blocks a render: it hands the state to the reporter's
