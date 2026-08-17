@@ -230,6 +230,11 @@ type App struct {
 	// (abc1234)") shown by :version. Set once at startup by main.
 	buildInfo string
 
+	// editorTempPath is the temp file of an in-flight external-editor
+	// compose round-trip (Ctrl+E). Empty when no editor is open. See
+	// editor.go.
+	editorTempPath string
+
 	// externalUsers tracks which user IDs are Slack Connect / shared-channel
 	// guests. Populated by main.go via SetExternalUsers as users are
 	// resolved. Read by SetUserNames when building the mention-picker User
