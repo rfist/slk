@@ -1,0 +1,40 @@
+# Fork-only workflow (rfist/slk): build the `edge` branch and publish
+# binaries as run artifacts. Upstream's ci.yml (main-only) is untouched.
+name: edge
+on:
+  push:
+    branches: [edge]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, ubuntu-latest, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install X11 headers (Linux)
+        if: ${{ runner.os == 'Linux' }}
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libx11-dev
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: stable
+          cache: true
+      - name: Test
+        run: go test ./...
+      - name: Build
+        run: make build
+      - name: Version stamp
+        run: ./bin/slk --version
+      - uses: actions/upload-artifact@v4
+        with:
+          name: slk_${{ runner.os }}_${{ runner.arch }}
+          path: bin/slk

@@ -1093,15 +1093,13 @@ func (a *App) yankTextOfSelected() tea.Cmd {
 	}
 	flattened := messages.FlattenMrkdwn(text, resolveUser, resolveChannel)
 
-	clipboardAvailable := a.clipboardAvailable
-	write := a.clipboardWrite
-	return func() tea.Msg {
-		if !clipboardAvailable {
-			return statusbar.TextCopyFailedMsg{}
-		}
-		_ = write(clipboard.FmtText, []byte(flattened))
-		return statusbar.TextCopiedMsg{}
-	}
+	// Clipboard writes go through OSC 52 (tea.SetClipboard) since #142,
+	// so there is no local-availability gate to consult -- the terminal
+	// owns delivery. Batch the write command with the success toast.
+	return tea.Batch(
+		a.clipboardWrite(flattened),
+		func() tea.Msg { return statusbar.TextCopiedMsg{} },
+	)
 }
 
 // openLinksOfSelected implements the `o` keybinding: collect the
