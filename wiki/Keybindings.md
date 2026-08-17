@@ -35,6 +35,7 @@
 | `U` | Normal (message) | Mark selected message and everything newer as unread |
 | `S` | Normal (thread) | Save thread to markdown file (`~/.local/share/slk/exports/` or `$XDG_DATA_HOME/slk/exports/`) |
 | `Y` / `C` | Normal (message) | Copy message permalink |
+| `y` | Normal (message) | Copy message text (plain, mentions/links resolved) |
 | `O` / `v` | Normal (message) | Open full-screen image preview |
 | `Esc` / `q` | Preview | Close preview |
 | `Enter` | Preview | Open in system image viewer |

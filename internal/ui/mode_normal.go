@@ -10,7 +10,7 @@
 //     (page), G (bottom), Tab/h/l (focus next/prev), Ctrl-o/i
 //     (nav back/forward through visited channels)
 //   - layout toggles: s (sidebar), t (thread)
-//   - message ops: y (copy permalink), E (edit), D (delete),
+//   - message ops: Y (copy permalink), y (yank text), E (edit), D (delete),
 //     M (mark unread), O (open image preview)
 //   - reaction nav sub-state: r enters; arrows + Enter select
 //     (delegated to handleReactionNav / handleThreadReactionNav)
@@ -259,6 +259,9 @@ func handleNormalMode(a *App, msg tea.KeyMsg) tea.Cmd {
 
 	case key.Matches(msg, a.keys.CopyPermalink):
 		return a.copyPermalinkOfSelected()
+
+	case key.Matches(msg, a.keys.YankText):
+		return a.yankTextOfSelected()
 
 	case key.Matches(msg, a.keys.Edit):
 		return a.beginEditOfSelected()
