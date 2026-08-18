@@ -1,0 +1,27 @@
+schema: spec-driven
+
+context: |
+  slk is a terminal Slack client in Go (bubbletea/v2 TUI, slack-go, SQLite cache).
+  Auth is browser cookie auth (xoxc token + `d` cookie), not a Slack app token.
+
+  Layering: cmd/slk wires everything; internal/slack owns the API + WebSocket
+  client; internal/bootstrap parses the boot payload; internal/cache is the
+  SQLite store; internal/ui is the bubbletea app (App + mode FSM + reducers +
+  per-widget packages under internal/ui/<widget>/).
+
+  Conventions:
+  - internal/slack.SlackAPI is a narrow, explicit interface over slack-go, and
+    its omissions are deliberate and documented. Widening it is a decision.
+  - UI overlays are self-contained packages with a Model, HandleKey returning a
+    Result, and a View; App owns the mode FSM and the tea.Cmd plumbing.
+  - Writes are applied optimistically to local state, then sent to the API; the
+    WebSocket echo reaffirms them.
+  - Cache migrations are idempotent `CREATE TABLE IF NOT EXISTS` statements in
+    one schema string in internal/cache/db.go.
+  - Tests are table-driven, live beside the code, and run under -race.
+
+rules:
+  proposal:
+    - Always include a "Non-Goals" note when scope was deliberately narrowed
+  design:
+    - Cite concrete file paths for every integration point
