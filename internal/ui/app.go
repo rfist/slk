@@ -738,17 +738,30 @@ func (a *App) navigateForward() tea.Cmd {
 	return a.walkNavCmd(+1)
 }
 
-// walkNavCmd is the shared wrapper that turns navHistoryStore.Walk's
-// pure result into the ChannelSelectedMsg{FromHistory: true} tea.Cmd
-// the App emits. step must be -1 or +1.
+// walkNavCmd is the shared wrapper for a history walk. A walk is also
+// a departure, so the position being left is folded into the current
+// entry first (UpdateCurrent) — this cannot wait for the
+// ChannelSelectedMsg arm, because Walk moves the cursor to the
+// destination before the message is reduced, and UpdateCurrent's
+// channel guard would then no-op against the destination entry. The
+// walked Location then goes through the shared applyLocation applier
+// with FromHistory: true, so the walk does not grow the stack. step
+// must be -1 or +1.
 func (a *App) walkNavCmd(step int) tea.Cmd {
-	id, name, ctype, ok := a.navHistory.Walk(a.activeTeamID, step, a.channels.Lookup)
+	a.navHistory.UpdateCurrent(a.activeTeamID, a.currentPosition())
+
+	loc, ok := a.navHistory.Walk(a.activeTeamID, step, a.channels.Lookup)
 	if !ok {
 		return nil
 	}
-	return func() tea.Msg {
-		return ChannelSelectedMsg{ID: id, Name: name, Type: ctype, FromHistory: true}
+	cmd, ok := a.applyLocation(loc, true)
+	if !ok {
+		// The channel resolved during Walk but no longer does here (a
+		// workspace refresh raced the walk): nothing further to do;
+		// Walk already removed the entry.
+		return nil
 	}
+	return cmd
 }
 
 // handleNormalMode moved to mode_normal.go (Phase 5k).

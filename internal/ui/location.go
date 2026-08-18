@@ -59,3 +59,19 @@ func (a *App) currentLocation() (Location, bool) {
 		MessageTS: ids.MessageTS(msg.TS),
 	}, true
 }
+
+// currentPosition returns the user's current position as a Location,
+// falling back to a channel-only location when no message is selected
+// (the spec's "location with no selected message"). The fallback
+// carries just the workspace and channel so a position-less departure
+// still degrades cleanly instead of being dropped.
+func (a *App) currentPosition() Location {
+	loc, ok := a.currentLocation()
+	if ok {
+		return loc
+	}
+	return Location{
+		TeamID:    ids.TeamID(a.activeTeamID),
+		ChannelID: ids.ChannelID(a.activeChannelID),
+	}
+}

@@ -45,7 +45,7 @@ func (a *App) routeLink(rawURL string) tea.Cmd {
 		ChannelID: pl.ChannelID,
 		MessageTS: pl.MessageTS,
 		ThreadTS:  pl.ThreadTS,
-	})
+	}, false)
 	if ok {
 		return cmd
 	}
@@ -62,20 +62,31 @@ func (a *App) routeLink(rawURL string) tea.Cmd {
 // toast) branch on ok. A nil cmd with ok=true is a completed navigation
 // (e.g. SelectByTS selected the message in the already-active channel),
 // not a failure.
-func (a *App) applyLocation(loc Location) (tea.Cmd, bool) {
+//
+// fromHistory marks the synthesized ChannelSelectedMsg so the reducer
+// does not record the walk as a new visit — history walks must not
+// grow the stack. It also forces the ChannelSelectedMsg path even when
+// the target channel is already active: a walk is a navigation between
+// recorded positions, not an in-place jump, so it always goes through
+// the channel-switch pipeline (a same-channel walk is reachable in
+// production when stale entries between two same-channel entries are
+// skipped and dropped). Direct jumps (permalinks, marks) keep the
+// in-place completion so re-selecting the current channel does not
+// reload it.
+func (a *App) applyLocation(loc Location, fromHistory bool) (tea.Cmd, bool) {
 	name, chType, found := a.channels.Lookup(loc.ChannelID)
 	if !found {
 		return nil, false
 	}
 	a.pendingLinkNav = &loc
-	if string(loc.ChannelID) == a.activeChannelID {
+	if !fromHistory && string(loc.ChannelID) == a.activeChannelID {
 		// Already viewing the channel; the loaded buffer is as good
 		// as it gets, so complete authoritatively right now.
 		return a.completePendingLinkNav(a.activeChannelID, true), true
 	}
 	id, n, t := string(loc.ChannelID), name, chType
 	return func() tea.Msg {
-		return ChannelSelectedMsg{ID: id, Name: n, Type: t}
+		return ChannelSelectedMsg{ID: id, Name: n, Type: t, FromHistory: fromHistory}
 	}, true
 }
 
@@ -96,6 +107,15 @@ func (a *App) completePendingLinkNav(channelID string, authoritative bool) tea.C
 	if string(p.ChannelID) != channelID {
 		// The user navigated somewhere unrelated before the link
 		// target finished loading; the pending nav is stale.
+		a.pendingLinkNav = nil
+		return nil
+	}
+	if p.MessageTS == "" && p.ThreadTS == "" {
+		// Channel-only location: the channel is already (being)
+		// opened and there is nothing to select or open on top of it.
+		// Permalinks and search hits always carry a message ts, so
+		// only history walks produce this — and FetchAround with an
+		// empty ts would be a bogus request.
 		a.pendingLinkNav = nil
 		return nil
 	}

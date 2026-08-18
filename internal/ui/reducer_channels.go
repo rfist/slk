@@ -311,6 +311,12 @@ func (a *App) retargetActiveChannel(id, name, chType string) {
 // The permalink-completion hook uses !fetchFired as its `authoritative`
 // flag.
 func reduceChannelSelected(a *App, m ChannelSelectedMsg) (tea.Cmd, bool) {
+	// Capture the position the user is LEAVING before CloseThread and
+	// clearSelections below discard the outgoing selection: the history
+	// records where the user was at the moment of departure, not where
+	// they arrived. Reading the panes after the teardown would yield an
+	// empty position that still looks like a valid channel-level entry.
+	departing := a.currentPosition()
 	if a.compose.Uploading() || a.threadCompose.Uploading() {
 		return a.uploadToastCmd("Upload in progress", 2*time.Second), false
 	}
@@ -354,7 +360,17 @@ func reduceChannelSelected(a *App, m ChannelSelectedMsg) (tea.Cmd, bool) {
 	// asynchronously via main.go's recorder closure.
 	a.channels.RecordVisit(ids.ChannelID(m.ID))
 	if !m.FromHistory {
-		a.navHistory.Push(a.activeTeamID, m.ID)
+		// Fold the departing position into the entry being left (it
+		// was recorded channel-only on arrival), then push the
+		// ARRIVING channel exactly as the pre-position history did.
+		// Pushing the departure instead would leave the current
+		// location absent from the stack, so the cursor would sit one
+		// behind and Ctrl+H would skip a channel.
+		a.navHistory.UpdateCurrent(a.activeTeamID, departing)
+		a.navHistory.Push(a.activeTeamID, Location{
+			TeamID:    ids.TeamID(a.activeTeamID),
+			ChannelID: ids.ChannelID(m.ID),
+		})
 	}
 	// Tell the sidebar which channel is active so the staleness
 	// filter never hides it out from under the user.
