@@ -318,8 +318,9 @@ type App struct {
 	// pendingLinkNav tracks an in-flight permalink navigation: the
 	// channel was (or is being) opened and the message-select /
 	// thread-open completes when that channel's messages land. See
-	// reducer_links.go.
-	pendingLinkNav *pendingLinkNav
+	// reducer_links.go. Every in-app jump (permalinks, marks, history
+	// walks) records its target here via applyLocation.
+	pendingLinkNav *Location
 
 	// search is the active in-channel search (nil = none).
 	// searchInput is the prompt buffer while in ModeSearch.

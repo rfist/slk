@@ -22,14 +22,6 @@ import (
 	"github.com/gammons/slk/internal/ui/messages"
 )
 
-// pendingLinkNav is the not-yet-completed tail of an in-app permalink
-// navigation. Set by routeLink, consumed by completePendingLinkNav.
-type pendingLinkNav struct {
-	channelID string
-	messageTS string
-	threadTS  string // non-empty: open the thread panel instead of selecting
-}
-
 var reduceLinks reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
 	m, ok := msg.(OpenLinkMsg)
 	if !ok {
@@ -48,24 +40,43 @@ func (a *App) routeLink(rawURL string) tea.Cmd {
 	if domain == "" || pl.Subdomain != domain {
 		return a.browserOpener(rawURL)
 	}
-	name, chType, found := a.channels.Lookup(pl.ChannelID)
+	cmd, ok := a.applyLocation(Location{
+		TeamID:    ids.TeamID(a.activeTeamID),
+		ChannelID: pl.ChannelID,
+		MessageTS: pl.MessageTS,
+		ThreadTS:  pl.ThreadTS,
+	})
+	if ok {
+		return cmd
+	}
+	return a.browserOpener(rawURL)
+}
+
+// applyLocation is the single applier every in-app jump flows through
+// — a permalink, a mark, or a history walk. It records loc as the
+// pending navigation and dispatches the channel switch, so
+// completePendingLinkNav can finish once the target channel's messages
+// land (or immediately when the channel is already active). ok=false
+// means loc's channel could not be resolved and nothing was started;
+// callers that need a fallback (routeLink's browser opener, a mark-jump
+// toast) branch on ok. A nil cmd with ok=true is a completed navigation
+// (e.g. SelectByTS selected the message in the already-active channel),
+// not a failure.
+func (a *App) applyLocation(loc Location) (tea.Cmd, bool) {
+	name, chType, found := a.channels.Lookup(loc.ChannelID)
 	if !found {
-		return a.browserOpener(rawURL)
+		return nil, false
 	}
-	a.pendingLinkNav = &pendingLinkNav{
-		channelID: string(pl.ChannelID),
-		messageTS: string(pl.MessageTS),
-		threadTS:  string(pl.ThreadTS),
-	}
-	if string(pl.ChannelID) == a.activeChannelID {
+	a.pendingLinkNav = &loc
+	if string(loc.ChannelID) == a.activeChannelID {
 		// Already viewing the channel; the loaded buffer is as good
 		// as it gets, so complete authoritatively right now.
-		return a.completePendingLinkNav(a.activeChannelID, true)
+		return a.completePendingLinkNav(a.activeChannelID, true), true
 	}
-	id, n, t := string(pl.ChannelID), name, chType
+	id, n, t := string(loc.ChannelID), name, chType
 	return func() tea.Msg {
 		return ChannelSelectedMsg{ID: id, Name: n, Type: t}
-	}
+	}, true
 }
 
 // completePendingLinkNav finishes (or drops) the pending permalink
@@ -74,7 +85,7 @@ func (a *App) routeLink(rawURL string) tea.Cmd {
 // the buffer, dispatch ChannelService.FetchAround to load a history
 // window centered on the target instead of waiting.
 //
-// Called from: routeLink (already-active channel, authoritative),
+// Called from: applyLocation (already-active channel, authoritative),
 // reduceChannels' ChannelSelectedMsg arm (cache render, best-effort),
 // and reduceChannels' MessagesLoadedMsg arm (authoritative).
 func (a *App) completePendingLinkNav(channelID string, authoritative bool) tea.Cmd {
@@ -82,26 +93,26 @@ func (a *App) completePendingLinkNav(channelID string, authoritative bool) tea.C
 	if p == nil {
 		return nil
 	}
-	if p.channelID != channelID {
+	if string(p.ChannelID) != channelID {
 		// The user navigated somewhere unrelated before the link
 		// target finished loading; the pending nav is stale.
 		a.pendingLinkNav = nil
 		return nil
 	}
-	if p.threadTS != "" {
+	if p.ThreadTS != "" {
 		a.pendingLinkNav = nil
-		return a.openThreadForPermalink(p.channelID, p.threadTS)
+		return a.openThreadForPermalink(string(p.ChannelID), string(p.ThreadTS))
 	}
-	if a.messagepane.SelectByTS(p.messageTS) {
+	if a.messagepane.SelectByTS(string(p.MessageTS)) {
 		a.pendingLinkNav = nil
 		return nil
 	}
 	if authoritative {
 		a.pendingLinkNav = nil
 		channels := a.channels
-		chID, ts := p.channelID, p.messageTS
+		chID, ts := p.ChannelID, p.MessageTS
 		return func() tea.Msg {
-			return channels.FetchAround(ids.ChannelID(chID), ids.MessageTS(ts))
+			return channels.FetchAround(chID, ts)
 		}
 	}
 	return nil
