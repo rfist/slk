@@ -51,38 +51,65 @@
 - [ ] 3.1 Change `navStack.entries` in `internal/ui/navhistory.go` from
       `[]string` to a slice of `Location`. Keep `navStackMax = 50`, the
       forward-path truncation, and the cursor semantics unchanged.
-- [ ] 3.2 Change `navHistoryStore.Push` to take a `Location`. Keep the
-      consecutive-dedupe, but compare on channel identity so returning
-      to the same channel at a different position is still not a new
-      entry.
-- [ ] 3.3 In `internal/ui/reducer_channels.go`, capture the departing
+- [ ] 3.2 Change `navHistoryStore.Push` to take a `Location`. Push
+      continues to receive the channel being *opened*, exactly as it
+      does today. Keep the consecutive-dedupe, but compare on channel
+      identity so returning to the same channel at a different position
+      is still not a new entry.
+- [ ] 3.3 Add `navHistoryStore.UpdateCurrent(teamID string, loc
+      Location)` to `internal/ui/navhistory.go`: it overwrites the
+      entry at the cursor with `loc`, but only when that entry already
+      names the same channel. A no-op when the team has no stack, when
+      the cursor is at -1, or when the channels differ.
+- [ ] 3.4 In `internal/ui/reducer_channels.go`, capture the departing
       location at the **top** of the `ChannelSelectedMsg` arm --
       before `a.CloseThread()` (line 340) and `a.clearSelections()`
-      (line 341) discard it -- and pass it to the push at line 357.
-      The pushed entry describes the channel being *left*, not the one
-      being opened.
-- [ ] 3.4 Change `navHistoryStore.Walk` to return a `Location`. Keep
+      (line 341) discard it. Call `UpdateCurrent` with it immediately
+      before the existing push. **Keep pushing the ARRIVING channel**
+      (`m.ID`) as the code does today: the departing position updates
+      the entry being left, it does not become a new entry. Pushing the
+      departure instead would leave the current location absent from
+      the stack, so the cursor would sit one behind and `Ctrl+H` would
+      skip a channel.
+- [ ] 3.5 Acceptance check for 3.1-3.4: **every existing navhistory
+      test in `internal/ui/app_test.go` must still pass, unchanged.**
+      They assert channel sequence and cursor, neither of which this
+      change alters -- only the position data carried inside each entry
+      is new. Failures there mean the approach is wrong, not that the
+      tests are stale.
+- [ ] 3.6 Change `navHistoryStore.Walk` to return a `Location`. Keep
       the stale-entry skip-and-drop behaviour for entries whose
       *channel* does not resolve via `ChannelLookupFunc`.
-- [ ] 3.5 Change `a.navigateBack` / `a.navigateForward`
+- [ ] 3.7 Change `a.navigateBack` / `a.navigateForward`
       (`internal/ui/app.go:744`) to feed the walked `Location` into the
       group-2 applier instead of synthesizing a bare
       `ChannelSelectedMsg`. Keep `FromHistory: true` so the walk does
       not grow the stack.
-- [ ] 3.6 A walked location whose message cannot be found must open the
+- [ ] 3.8 In `walkNavCmd` (`internal/ui/app.go`), call `UpdateCurrent`
+      with the departing location **before** calling `Walk`. A history
+      walk is also a departure, but the `ChannelSelectedMsg` arm cannot
+      handle it: `Walk` moves the cursor first, so by the time the
+      message is reduced the cursor names the destination and
+      `UpdateCurrent`'s channel guard makes it a no-op. Without this,
+      walking away from a channel loses the position you were at.
+- [ ] 3.9 Tests for 3.8: walk back to a channel, move to a different
+      message, walk forward, then walk back again -- the second return
+      lands on the message you moved to, not the one stored before the
+      first walk.
+- [ ] 3.10 A walked location whose message cannot be found must open the
       channel and toast, not drop the entry. The message-level failure
       already exists at `internal/ui/reducer_channels.go:170-178`;
       reuse it rather than adding a second not-found path.
-- [ ] 3.7 Tests -- these are the ones that matter most in this change:
+- [ ] 3.11 Tests -- these are the ones that matter most in this change:
       going back after scrolling to an older message restores *that*
       message, not the newest; departing from an open thread records
       the thread and reply and returns to both; an entry whose channel
       no longer resolves is skipped and dropped; walking back and
       forward repeatedly does not grow the stack; per-workspace
       isolation still holds.
-- [ ] 3.8 Run `go test ./... -race`, `go vet ./...`, and
-      `gofmt -l` on changed files. Commit here: this group is
-      independently valuable and independently reviewable.
+- [ ] 3.12 Run `go test ./... -race`, `go vet ./...`, and `gofmt -l` on
+      changed files. Commit here: this group is independently valuable
+      and independently reviewable.
 
 ## 4. Thread panel can select by timestamp
 
@@ -174,8 +201,14 @@
 ## 8. The marks overlay
 
 - [ ] 8.1 Add `internal/ui/marks/` as a self-contained widget package
-      with `Model`, `HandleKey` returning a `Result`, and `View`.
-      `internal/ui/linkpicker/` is the closest existing shape.
+      following the repo's overlay convention: `HandleKey(keyStr
+      string) *MarksResult` (pointer, nil = not handled / stay open)
+      and `ViewOverlay(termWidth, termHeight int, background string)
+      string`. Copy the structure from
+      `internal/ui/channelfinder/model.go:271` — a filterable list that
+      returns a selected target. Do **not** copy
+      `internal/ui/linkpicker/`: it is functionally similar but is the
+      one overlay that breaks the convention, returning `(Item, bool)`.
 - [ ] 8.2 Add `ModeMarks` to `internal/ui/mode.go`, include it in
       `IsModalOverlay`, and give it a `String()` label.
 - [ ] 8.3 Render one row per mark: letter, channel, message preview,

@@ -53,6 +53,14 @@ record the position the user occupied when they first entered it.
 - **THEN** the channel opens with that message selected and visible
 - **AND** the view is not reset to the newest message
 
+#### Scenario: Leaving via a history walk also records the position
+
+- **WHEN** the user walks back to a channel, moves to a different
+  message there, and then walks forward away from it
+- **THEN** the entry for that channel records the message they moved to
+- **AND** walking back to it again restores that message, not the
+  position it held before the walk
+
 #### Scenario: Departure from an open thread
 
 - **WHEN** the user is reading a reply inside an open thread and

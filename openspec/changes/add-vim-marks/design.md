@@ -90,27 +90,49 @@ navigation that finishes when messages land" would need the same
 staleness rule, the same `FetchAround` fallback, and the same thread
 handoff, maintained twice.
 
-### Navigation history stores the departure position, captured before teardown
+### Navigation history updates the departure position, captured before teardown
 
-`navStack.entries` becomes `[]Location`. The recording call at
-`internal/ui/reducer_channels.go:357` currently runs after
-`a.CloseThread()` and `a.clearSelections()`, so the outgoing position
-is already gone by the time `Push` is reached. The fix is to read
+`navStack.entries` becomes `[]Location`. Two things must both be true,
+and conflating them is the trap:
+
+1. The entry that gets **pushed** is still the channel being *opened*,
+   exactly as today. The current location must always be present in the
+   stack at the cursor, or `Ctrl+H` walks from a cursor that sits one
+   behind and skips a channel.
+2. The position recorded for the channel being *left* **updates the
+   existing entry** at the cursor rather than becoming a new one.
+
+So the arm does: capture the departing location, `UpdateCurrent` the
+entry at the cursor with it, then `Push` the arriving channel.
+
+The capture has to happen at the *top* of the `ChannelSelectedMsg` arm
+in `internal/ui/reducer_channels.go`, reading
 `a.messagepane.SelectedMessage()` (`internal/ui/messages/model.go:818`)
-and the thread panel's `ThreadTS()`
-(`internal/ui/thread/model.go:451`) at the *top* of the
-`ChannelSelectedMsg` arm, before line 340, and carry that into the
-push.
+and the thread panel's `ThreadTS()` (`internal/ui/thread/model.go:451`)
+before `a.CloseThread()` (line 340) and `a.clearSelections()` (line
+341) discard them. The existing push at line 357 runs after both.
 
 This is what makes "back" mean browser-back rather than
-"bookmark-of-first-arrival". It is also the single most subtle part of
-the change and the easiest to implement in a way that passes a naive
-test while being wrong -- a test must assert the position recorded is
-the one the user *scrolled to*, not the one they entered on.
+"bookmark-of-first-arrival". It is the most subtle part of the change
+and has two distinct ways to go wrong: reading the selection after the
+teardown (yielding an empty position that still looks like a valid
+channel-level entry), and pushing the departure as the entry (silently
+breaking back/forward while every position assertion still passes).
+
+The acceptance check for both: the existing navhistory tests in
+`internal/ui/app_test.go` assert channel sequence and cursor, and this
+change alters neither. **They must stay green, unmodified.** Only the
+position data carried inside each entry is new.
 
 *Alternative rejected:* recording arrival position and updating it on
 every selection change. Selection changes on every `j`/`k`; the history
 would be written continuously rather than once per navigation.
+
+*Alternative rejected:* pushing the departing location as the entry.
+It reads as the natural implementation of "record where you left", and
+it is wrong: the location you currently occupy is then never in the
+stack, so the cursor trails by one and `Ctrl+H` moves two places back
+instead of one.
 
 ### Marks reuse the history's degradation rules, but never self-delete
 
@@ -185,10 +207,24 @@ unmapped key including Esc -- matching `handleWindowChord`
 (`internal/ui/windows.go:21`).
 
 The marks overlay is a self-contained widget package under
-`internal/ui/marks/` with a `Model`, `HandleKey` returning a `Result`,
-and a `View`, plus a `ModeMarks` entry in `internal/ui/mode.go` listed
-in `IsModalOverlay`. `internal/ui/linkpicker/` is the closest existing
-shape: a list of targets, each of which navigates.
+`internal/ui/marks/`, plus a `ModeMarks` entry in `internal/ui/mode.go`
+listed in `IsModalOverlay`.
+
+The overlay convention in this repo is `HandleKey(keyStr string)
+*XResult` — a pointer to a package-specific result struct, nil meaning
+"not handled / stay open" — rendered through `ViewOverlay(termWidth,
+termHeight int, background string) string`. `presencemenu.HandleKey`
+(`internal/ui/presencemenu/model.go:172`), `channelfinder.HandleKey`
+(`internal/ui/channelfinder/model.go:271`), `reactionpicker` and
+`themeswitcher` all follow it.
+
+**Follow `internal/ui/channelfinder/` for structure**: it is a
+filterable list of destinations that returns a selected target, which
+is what the marks overlay is. `internal/ui/linkpicker/` is the closest
+*functional* analogue (a list of targets, each of which navigates) but
+it is the one package that does **not** follow the convention — its
+`HandleKey` returns `(Item, bool)` rather than a result pointer. Do not
+copy linkpicker's signature.
 
 The `'` overlay and the `:marks` overlay are the same package in two
 entry modes. On the `'` path a letter key jumps immediately rather than
