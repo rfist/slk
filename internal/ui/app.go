@@ -322,6 +322,14 @@ type App struct {
 	// walks) records its target here via applyLocation.
 	pendingLinkNav *Location
 
+	// pendingThreadReplyTS is the reply a thread permalink / history
+	// location named, carried across the async replies fetch and
+	// applied by the ThreadRepliesLoadedMsg arm once the replies land
+	// (thread.SelectByTS). Empty = no reply is owed. Mirrors the
+	// pendingLinkNav mechanism: the replies only exist after the fetch,
+	// so the target cannot be selected at open time.
+	pendingThreadReplyTS string
+
 	// search is the active in-channel search (nil = none).
 	// searchInput is the prompt buffer while in ModeSearch.
 	// searchGen is a monotonic generation counter: bumped on every
@@ -1532,6 +1540,14 @@ func (a *App) openThreadForSelectedMessage() tea.Cmd {
 // by openThreadForSelectedMessage (parent taken from the pane buffer)
 // and openThreadForPermalink (parent reconstructed from cache/stub).
 func (a *App) openThreadPanel(parent messages.MessageItem, channelID, threadTS string) tea.Cmd {
+	// Every thread open defines its own pending reply target. Clearing
+	// here stops one owed by an earlier open from surviving — the
+	// ThreadRepliesLoadedMsg arm returns early on a failed fetch
+	// (m.Replies == nil) without consuming it, so without this reset a
+	// later plain open of the same thread would inherit it and jump to
+	// a reply the user never asked for. Callers that DO want a reply
+	// selected set pendingThreadReplyTS after this returns.
+	a.pendingThreadReplyTS = ""
 	a.threadVisible = true
 	a.statusbar.SetInThread(true)
 	a.focusedPanel = PanelThread

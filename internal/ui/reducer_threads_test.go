@@ -6,6 +6,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/gammons/slk/internal/ids"
+	"github.com/gammons/slk/internal/ui/messages"
 )
 
 // TestApp_WorkspaceReadyAndActivationBothEnsureSubscriptions pins where
@@ -56,5 +57,49 @@ func TestApp_WorkspaceReadyAndActivationBothEnsureSubscriptions(t *testing.T) {
 		}
 	case <-time.After(100 * time.Millisecond):
 		t.Fatal("opening the Threads view did not ensure subscriptions")
+	}
+}
+
+// A pending reply target must not survive the thread open that owed it.
+//
+// The ThreadRepliesLoadedMsg arm returns early when the fetch fails
+// (m.Replies == nil) WITHOUT consuming pendingThreadReplyTS. Without a
+// reset in openThreadPanel, a later plain open of the same thread would
+// inherit that stale target and jump to a reply the user never asked
+// for. openThreadPanel clears it; callers wanting a selection set it
+// after the call.
+func TestThreadOpenClearsStalePendingReply(t *testing.T) {
+	app := NewApp()
+	app.activeTeamID = "T1"
+	app.activeChannelID = "C1"
+	app.SetThreadService(NewThreadService(ThreadServiceFuncs{
+		CacheRead: func(ids.ChannelID, ids.ThreadTS) []messages.MessageItem { return nil },
+		Fetch:     func(ids.ChannelID, ids.ThreadTS) tea.Msg { return nil },
+	}))
+
+	// A thread location naming reply R1 opens the thread, then its
+	// replies fetch fails: the arm bails before consuming the target.
+	_ = app.openThreadForPermalink("C1", "P1", "R1")
+	if app.pendingThreadReplyTS != "R1" {
+		t.Fatalf("pending reply = %q, want R1 owed by the permalink open", app.pendingThreadReplyTS)
+	}
+	app.Update(ThreadRepliesLoadedMsg{ThreadTS: "P1", Replies: nil})
+	if app.pendingThreadReplyTS != "R1" {
+		t.Fatalf("a failed fetch should leave the target owed; got %q", app.pendingThreadReplyTS)
+	}
+
+	// The user now opens the same thread plainly. This open owes
+	// nothing, so the stale target must be gone before replies land.
+	_ = app.openThreadPanel(messages.MessageItem{TS: "P1", ThreadTS: "P1"}, "C1", "P1")
+	if app.pendingThreadReplyTS != "" {
+		t.Fatalf("plain thread open inherited a stale pending reply %q", app.pendingThreadReplyTS)
+	}
+
+	app.Update(ThreadRepliesLoadedMsg{ThreadTS: "P1", Replies: []messages.MessageItem{
+		{TS: "R1", ThreadTS: "P1", Text: "reply 1"},
+		{TS: "R2", ThreadTS: "P1", Text: "reply 2"},
+	}})
+	if got := app.threadPanel.SelectedReply(); got != nil && got.TS == "R1" {
+		t.Fatal("plain thread open jumped to the stale target R1")
 	}
 }

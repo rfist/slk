@@ -106,6 +106,15 @@ var reduceThreads reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
 		}
 		a.threadPanel.SetThread(parentMsg, m.Replies, channelID, m.ThreadTS)
 
+		// A thread permalink / history location named a specific reply.
+		// The replies only exist in the model now, so this is the point
+		// where the selection can actually take effect — selecting at
+		// open time would run against the empty reply list.
+		if a.pendingThreadReplyTS != "" {
+			a.threadPanel.SelectByTS(a.pendingThreadReplyTS)
+			a.pendingThreadReplyTS = ""
+		}
+
 		// Mark the thread as read now that the user has actually
 		// seen the replies. Server-side: fire-and-forget against
 		// Slack's subscriptions.thread.mark with the latest reply

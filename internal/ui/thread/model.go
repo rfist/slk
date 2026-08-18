@@ -706,6 +706,38 @@ func (m *Model) SelectByIndex(i int) {
 	}
 }
 
+// SelectByTS moves the selection cursor to the reply with the given ts
+// and forces the next View() to re-snap the viewport to it. A ts equal
+// to the thread's own ts names the parent row (the thread's first
+// message, which is a selectable row like any reply). Returns false
+// (selection unchanged) when no reply with that ts is loaded. Used by
+// the permalink/history path to land on the exact reply a location
+// names. Mirrors messages.Model.SelectByTS
+// (internal/ui/messages/model.go:842).
+func (m *Model) SelectByTS(ts string) bool {
+	if ts == "" {
+		return false
+	}
+	if ts == m.threadTS {
+		if m.parent.TS == "" {
+			return false
+		}
+		m.selected = parentSelected
+		m.hasSnapped = false
+		m.InvalidateCache()
+		return true
+	}
+	for i := range m.replies {
+		if m.replies[i].TS == ts {
+			m.selected = i
+			m.hasSnapped = false
+			m.InvalidateCache()
+			return true
+		}
+	}
+	return false
+}
+
 // MoveUp moves the selection cursor up one reply.
 // ScrollUp scrolls the thread viewport up by n lines without changing the
 // selected reply. Marks the current selection as already-snapped so View()

@@ -121,7 +121,7 @@ func (a *App) completePendingLinkNav(channelID string, authoritative bool) tea.C
 	}
 	if p.ThreadTS != "" {
 		a.pendingLinkNav = nil
-		return a.openThreadForPermalink(string(p.ChannelID), string(p.ThreadTS))
+		return a.openThreadForPermalink(string(p.ChannelID), string(p.ThreadTS), string(p.MessageTS))
 	}
 	if a.messagepane.SelectByTS(string(p.MessageTS)) {
 		a.pendingLinkNav = nil
@@ -145,7 +145,13 @@ func (a *App) completePendingLinkNav(channelID string, authoritative bool) tea.C
 // the parent row is taken from the loaded buffer or the thread cache
 // when available, else a minimal stub that the ThreadRepliesLoadedMsg
 // handler backfills from cache once the fetch lands.
-func (a *App) openThreadForPermalink(channelID, threadTS string) tea.Cmd {
+//
+// replyTS is the message inside the thread the location named (the
+// reply, or the parent's own ts when the parent row was the target).
+// The replies arrive asynchronously via ThreadRepliesLoadedMsg, so the
+// target is remembered in pendingThreadReplyTS and applied there,
+// where the replies actually exist — selecting now would miss them.
+func (a *App) openThreadForPermalink(channelID, threadTS, replyTS string) tea.Cmd {
 	parent := messages.MessageItem{TS: threadTS, ThreadTS: threadTS}
 	if channelID == a.activeChannelID {
 		for _, m := range a.messagepane.Messages() {
@@ -161,5 +167,11 @@ func (a *App) openThreadForPermalink(channelID, threadTS string) tea.Cmd {
 		}
 	}
 
-	return a.openThreadPanel(parent, channelID, threadTS)
+	// Set AFTER openThreadPanel: it clears any pending reply owed by an
+	// earlier open, so setting first would be wiped immediately. The
+	// returned cmd has not run yet, so the target is in place well
+	// before any ThreadRepliesLoadedMsg is reduced.
+	cmd := a.openThreadPanel(parent, channelID, threadTS)
+	a.pendingThreadReplyTS = replyTS
+	return cmd
 }

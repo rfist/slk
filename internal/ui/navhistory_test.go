@@ -24,8 +24,9 @@ import (
 )
 
 // walkAndUpdate invokes the walk command, verifies it synthesizes a
-// FromHistory ChannelSelectedMsg, and feeds it back through Update so
-// the pending navigation completes (as the program loop would).
+// FromHistory ChannelSelectedMsg, feeds it back through Update, and
+// drives any follow-up work the pending navigation dispatched (thread
+// replies, surrounding-history fetch) — as the program loop would.
 func walkAndUpdate(t *testing.T, app *App, cmd tea.Cmd) {
 	t.Helper()
 	if cmd == nil {
@@ -38,7 +39,15 @@ func walkAndUpdate(t *testing.T, app *App, cmd tea.Cmd) {
 	if !cs.FromHistory {
 		t.Fatal("walk navigation must carry FromHistory")
 	}
-	app.Update(cs)
+	_, done := app.Update(cs)
+	for _, m := range drainCmd(done) {
+		switch tm := m.(type) {
+		case ThreadRepliesLoadedMsg:
+			app.Update(tm)
+		case MessagesAroundLoadedMsg:
+			app.Update(tm)
+		}
+	}
 }
 
 // Walking away from a channel must record the position the user was at
@@ -142,9 +151,9 @@ func TestNavBackRestoresScrolledToMessage(t *testing.T) {
 }
 
 // Departing from an open thread must record the thread AND the reply,
-// and walking back must reopen that thread. (Selecting the exact reply
-// inside the reopened thread is group 4 — thread.SelectByTS is wired
-// into openThreadForPermalink there.)
+// and walking back must reopen that thread with the recorded reply
+// selected (completes the spec scenario "navigating back reopens the
+// thread with the reply selected").
 func TestNavBackFromOpenThreadRecordsThreadAndReopens(t *testing.T) {
 	app := navFixtureApp(t, map[ids.ChannelID][]messages.MessageItem{
 		"C1": {
@@ -154,6 +163,17 @@ func TestNavBackFromOpenThreadRecordsThreadAndReopens(t *testing.T) {
 		},
 		"C2": {{TS: "10.0", Text: "c2"}},
 	}, nil)
+	// The thread cache supplies the replies for the reopen so the
+	// reopened panel gets them without a network round-trip.
+	app.SetThreadService(NewThreadService(ThreadServiceFuncs{
+		CacheRead: func(channelID ids.ChannelID, threadTS ids.ThreadTS) []messages.MessageItem {
+			return []messages.MessageItem{
+				{TS: "P1", ThreadTS: "P1", Text: "parent"},
+				{TS: "R1", ThreadTS: "P1", Text: "reply 1"},
+				{TS: "R2", ThreadTS: "P1", Text: "reply 2"},
+			}
+		},
+	}))
 
 	app.Update(ChannelSelectedMsg{ID: "C1", Name: "one", Type: "channel"})
 	app.threadPanel.SetThread(
@@ -179,13 +199,17 @@ func TestNavBackFromOpenThreadRecordsThreadAndReopens(t *testing.T) {
 		t.Fatalf("recorded entry = %+v, want C1 / reply R1 / thread P1", entry)
 	}
 
-	// Walking back reopens that thread.
+	// Walking back reopens that thread with the recorded reply
+	// selected (not the newest).
 	walkAndUpdate(t, app, app.navigateBack())
 	if !app.threadVisible {
 		t.Fatal("walking back to a thread location must reopen the thread panel")
 	}
 	if app.threadPanel.ThreadTS() != "P1" || app.threadPanel.ChannelID() != "C1" {
 		t.Fatalf("reopened thread = %s in %s, want P1 in C1", app.threadPanel.ThreadTS(), app.threadPanel.ChannelID())
+	}
+	if got := app.threadPanel.SelectedReply(); got == nil || got.TS != "R1" {
+		t.Fatalf("reopened thread selected %+v, want the recorded reply R1", got)
 	}
 }
 
