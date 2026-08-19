@@ -620,3 +620,48 @@ func TestJumpMark_FromThreadsViewShowsTheMessage(t *testing.T) {
 		})
 	}
 }
+
+// The first jump into a channel must survive the authoritative load.
+//
+// A channel switch renders the cache first (best-effort) and then
+// replaces the buffer when the network fetch lands. If the pending
+// target is forgotten on the best-effort pass, SetMessages resets the
+// selection to the newest message and nothing re-applies it — the jump
+// visibly lands on the target and then snaps to the bottom. A second
+// jump to the same channel looked fine because it completes in place
+// with no fetch behind it.
+func TestJumpMark_SurvivesAuthoritativeReload(t *testing.T) {
+	app := jumpMarkTestApp(t)
+	app.activeChannelID = "C2"
+	buffer := []messages.MessageItem{
+		{TS: "1.0", Text: "the marked one"},
+		{TS: "2.0", Text: "newer"},
+		{TS: "3.0", Text: "newest"},
+	}
+	app.messagepane.SetMessages(buffer)
+	app.pendingLinkNav = &Location{
+		TeamID: "T1", ChannelID: "C2", MessageTS: "1.0",
+	}
+
+	// Best-effort pass: the cache render already holds the target, so
+	// it is selected — but a network fetch is still in flight.
+	app.completePendingLinkNav("C2", false)
+	if sel, ok := app.messagepane.SelectedMessage(); !ok || sel.TS != "1.0" {
+		t.Fatalf("after the cache render, selected = %+v ok=%v, want 1.0", sel, ok)
+	}
+	if app.pendingLinkNav == nil {
+		t.Fatal("the target must stay pending while a fetch is still coming")
+	}
+
+	// The authoritative load replaces the buffer, resetting the
+	// selection to the newest message.
+	app.messagepane.SetMessages(buffer)
+	app.completePendingLinkNav("C2", true)
+
+	if sel, ok := app.messagepane.SelectedMessage(); !ok || sel.TS != "1.0" {
+		t.Fatalf("after the authoritative load, selected = %+v ok=%v — the jump snapped away from the marked message", sel, ok)
+	}
+	if app.pendingLinkNav != nil {
+		t.Error("the target should be cleared once the authoritative pass has applied it")
+	}
+}

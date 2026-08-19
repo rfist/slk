@@ -1578,6 +1578,8 @@ func (a *App) openThreadForSelectedMessage() tea.Cmd {
 // by openThreadForSelectedMessage (parent taken from the pane buffer)
 // and openThreadForPermalink (parent reconstructed from cache/stub).
 func (a *App) openThreadPanel(parent messages.MessageItem, channelID, threadTS string) tea.Cmd {
+	debuglog.General("marks/thread: openThreadPanel ch=%s thread=%s (was visible=%v thread=%s)",
+		channelID, threadTS, a.threadVisible, a.threadPanel.ThreadTS())
 	// Every thread open defines its own pending reply target. Clearing
 	// here stops one owed by an earlier open from surviving — the
 	// ThreadRepliesLoadedMsg arm returns early on a failed fetch
@@ -1745,6 +1747,8 @@ func (a *App) ToggleThread() {
 }
 
 func (a *App) CloseThread() {
+	debuglog.General("marks/thread: CloseThread was=%v thread=%s ch=%s view=%d panel=%d",
+		a.threadVisible, a.threadPanel.ThreadTS(), a.threadPanel.ChannelID(), a.view, a.focusedPanel)
 	a.clearSelections()
 	a.threadVisible = false
 	a.statusbar.SetInThread(false)

@@ -17,6 +17,8 @@ package ui
 import (
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/gammons/slk/internal/debuglog"
+
 	"github.com/gammons/slk/internal/ids"
 	"github.com/gammons/slk/internal/slackurl"
 	"github.com/gammons/slk/internal/ui/messages"
@@ -79,6 +81,9 @@ func (a *App) applyLocation(loc Location, fromHistory bool) (tea.Cmd, bool) {
 		return nil, false
 	}
 	a.pendingLinkNav = &loc
+	debuglog.General("marks/nav: applyLocation ch=%s ts=%s thread=%s fromHistory=%v active=%s inPlace=%v view=%d panel=%d threadVisible=%v",
+		loc.ChannelID, loc.MessageTS, loc.ThreadTS, fromHistory, a.activeChannelID,
+		!fromHistory && string(loc.ChannelID) == a.activeChannelID, a.view, a.focusedPanel, a.threadVisible)
 	if !fromHistory && string(loc.ChannelID) == a.activeChannelID {
 		// Already viewing the channel; the loaded buffer is as good
 		// as it gets, so complete authoritatively right now.
@@ -134,7 +139,18 @@ func (a *App) completePendingLinkNav(channelID string, authoritative bool) tea.C
 		return a.openThreadForPermalink(string(p.ChannelID), string(p.ThreadTS), string(p.MessageTS))
 	}
 	if a.messagepane.SelectByTS(string(p.MessageTS)) {
-		a.pendingLinkNav = nil
+		// Only forget the target once this is the freshest data we
+		// will get. On a best-effort pass (the cache render, with a
+		// network fetch still in flight) the selection is real but
+		// temporary: the MessagesLoadedMsg arm calls SetMessages,
+		// which resets the selection to the newest message. Clearing
+		// here left nothing to re-apply, so the first jump into a
+		// channel visibly landed on the target and then snapped to the
+		// bottom a moment later. Keeping the pending makes the
+		// authoritative pass re-select; it is idempotent.
+		if authoritative {
+			a.pendingLinkNav = nil
+		}
 		return nil
 	}
 	if authoritative {
