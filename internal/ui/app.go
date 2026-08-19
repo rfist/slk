@@ -144,6 +144,12 @@ type App struct {
 	// any mode change disarms (see SetMode).
 	pendingWinCmd bool
 
+	// pendingMark is true between an m press and its mark letter; the
+	// next key names the mark to set (handleMarkChord, set_mark.go).
+	// Mirrors pendingWinCmd: any non-letter — Esc included — cancels
+	// silently, matching vim.
+	pendingMark bool
+
 	// layout owns the per-frame layout geometry (horizontal bands for
 	// mouse hit-testing + per-pane content heights for pageSize). See
 	// internal/ui/panellayout.go.
@@ -329,6 +335,11 @@ type App struct {
 	// pendingLinkNav mechanism: the replies only exist after the fetch,
 	// so the target cannot be selected at open time.
 	pendingThreadReplyTS string
+
+	// marks owns the vim-style mark storage: an in-memory per-workspace
+	// tier for lowercase marks plus the SQLite `marks` table, merged
+	// behind one set of accessors (see internal/ui/marks.go).
+	marks *marksStore
 
 	// search is the active in-channel search (nil = none).
 	// searchInput is the prompt buffer while in ModeSearch.
@@ -532,6 +543,7 @@ func NewApp() *App {
 		workspaceDomains:      map[string]string{},
 		browserOpener:         openURLCmd,
 		navHistory:            newNavHistoryStore(),
+		marks:                 newMarksStore(),
 		clipboardRead:         defaultClipboardReader,
 		clipboardWrite:        defaultClipboardWriter,
 	}
@@ -1576,6 +1588,15 @@ func (a *App) SetMode(mode Mode) {
 	// other helpHint states aren't clobbered by unrelated mode changes.
 	if a.pendingWinCmd {
 		a.pendingWinCmd = false
+		a.statusbar.SetHelpHint(a.defaultHelpHint())
+	}
+	// Same for a pending `m` chord, and for the same reason: ctrl+c is
+	// intercepted in handleKey before mode dispatch, so it never reaches
+	// handleMarkChord to be cancelled there. Left armed, the next letter
+	// key in normal mode would be swallowed as a mark name instead of
+	// doing its own job.
+	if a.pendingMark {
+		a.pendingMark = false
 		a.statusbar.SetHelpHint(a.defaultHelpHint())
 	}
 	if mode == ModeInsert {
