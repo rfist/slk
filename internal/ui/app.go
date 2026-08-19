@@ -1747,6 +1747,8 @@ func (a *App) ToggleThread() {
 }
 
 func (a *App) CloseThread() {
+	// A pending reply target belongs to the open it was set for.
+	a.pendingThreadReplyTS = ""
 	debuglog.General("marks/thread: CloseThread was=%v thread=%s ch=%s view=%d panel=%d",
 		a.threadVisible, a.threadPanel.ThreadTS(), a.threadPanel.ChannelID(), a.view, a.focusedPanel)
 	a.clearSelections()

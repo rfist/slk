@@ -5,29 +5,29 @@
 // Owns the nine Update arms that drive the thread panel, the
 // threads-list view, and the thread-reply send path:
 //
-//   ThreadMarkedRemoteMsg       - apply a remote subscriptions.thread.mark
-//                                 echo to the local read state.
-//   threadFetchDebounceMsg      - debounced j/k stop: fire the actual
-//                                 thread fetch (drops stale generations
-//                                 and post-navigation ticks).
-//   ThreadRepliesLoadedMsg      - replies fetch returned: refresh the
-//                                 panel, mark the thread as read, and
-//                                 refresh the sidebar badge.
-//   ThreadsViewActivatedMsg     - user opened the threads-list view:
-//                                 switch view + focus, kick a list
-//                                 fetch, open the highlighted thread.
-//   ThreadsListLoadedMsg        - threads-list fetch returned: push
-//                                 summaries + refresh badge, re-open
-//                                 the highlighted thread if visible.
-//   ThreadsListDirtyMsg         - a debounced "list might be stale"
-//                                 trigger: kick a refresh fetch.
-//   SendThreadReplyMsg          - user sent a reply: optimistic
-//                                 placeholder + chat.postMessage call.
-//   ThreadReplySentMsg          - reply landed: swap placeholder for
-//                                 authoritative message, bump parent
-//                                 reply count, mark threads list dirty.
-//   ThreadReplySendFailedMsg    - reply failed: roll back the
-//                                 placeholder + fire SendFailed toast.
+//	ThreadMarkedRemoteMsg       - apply a remote subscriptions.thread.mark
+//	                              echo to the local read state.
+//	threadFetchDebounceMsg      - debounced j/k stop: fire the actual
+//	                              thread fetch (drops stale generations
+//	                              and post-navigation ticks).
+//	ThreadRepliesLoadedMsg      - replies fetch returned: refresh the
+//	                              panel, mark the thread as read, and
+//	                              refresh the sidebar badge.
+//	ThreadsViewActivatedMsg     - user opened the threads-list view:
+//	                              switch view + focus, kick a list
+//	                              fetch, open the highlighted thread.
+//	ThreadsListLoadedMsg        - threads-list fetch returned: push
+//	                              summaries + refresh badge, re-open
+//	                              the highlighted thread if visible.
+//	ThreadsListDirtyMsg         - a debounced "list might be stale"
+//	                              trigger: kick a refresh fetch.
+//	SendThreadReplyMsg          - user sent a reply: optimistic
+//	                              placeholder + chat.postMessage call.
+//	ThreadReplySentMsg          - reply landed: swap placeholder for
+//	                              authoritative message, bump parent
+//	                              reply count, mark threads list dirty.
+//	ThreadReplySendFailedMsg    - reply failed: roll back the
+//	                              placeholder + fire SendFailed toast.
 //
 // Free reducer (not controller-absorbed): these arms cooperate on
 // the thread panel, the threads-list view, the sidebar's threads
@@ -110,9 +110,17 @@ var reduceThreads reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
 		// The replies only exist in the model now, so this is the point
 		// where the selection can actually take effect — selecting at
 		// open time would run against the empty reply list.
+		//
+		// Deliberately NOT cleared here. openThreadPanel batches two
+		// replies-loads: the cache first, then the network fetch. Both
+		// arrive through this arm and both call SetThread, which resets
+		// the selection — so clearing on the cached pass left nothing to
+		// re-apply and the fetched pass highlighted the wrong reply.
+		// Re-applying on every load is idempotent; the slot is scoped to
+		// one thread open by openThreadPanel, which resets it, and by
+		// CloseThread.
 		if a.pendingThreadReplyTS != "" {
 			a.threadPanel.SelectByTS(a.pendingThreadReplyTS)
-			a.pendingThreadReplyTS = ""
 		}
 
 		// Mark the thread as read now that the user has actually
