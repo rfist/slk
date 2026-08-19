@@ -11,7 +11,8 @@
 //     (nav back/forward through visited channels)
 //   - layout toggles: s (sidebar), t (thread)
 //   - message ops: y (copy permalink), E (edit), D (delete),
-//     U (mark unread), m (set mark), O (open image preview)
+//     U (mark unread), m (set mark), ' (jump to mark), O (open image
+//     preview)
 //   - reaction nav sub-state: r enters; arrows + Enter select
 //     (delegated to handleReactionNav / handleThreadReactionNav)
 //   - window commands: Ctrl-W prefix arms a pending sub-state; the
@@ -51,6 +52,13 @@ func handleNormalMode(a *App, msg tea.KeyMsg) tea.Cmd {
 		a.pendingMark = false
 		a.statusbar.SetHelpHint(a.defaultHelpHint())
 		return a.handleMarkChord(msg)
+	}
+
+	// ' pending sub-state: the next key names the mark to jump to.
+	if a.pendingJumpMark {
+		a.pendingJumpMark = false
+		a.statusbar.SetHelpHint(a.defaultHelpHint())
+		return a.handleJumpChord(msg)
 	}
 
 	// Reaction-nav sub-state (intercept before normal keys).
@@ -286,6 +294,11 @@ func handleNormalMode(a *App, msg tea.KeyMsg) tea.Cmd {
 	case key.Matches(msg, a.keys.MarkSet):
 		a.pendingMark = true
 		a.statusbar.SetHelpHint("m…")
+		return nil
+
+	case key.Matches(msg, a.keys.JumpMark):
+		a.pendingJumpMark = true
+		a.statusbar.SetHelpHint("'…")
 		return nil
 
 	case key.Matches(msg, a.keys.NextUnread):

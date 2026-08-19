@@ -150,6 +150,19 @@ type App struct {
 	// silently, matching vim.
 	pendingMark bool
 
+	// pendingJumpMark is true between a ' (or `) press and its mark
+	// letter; the next key names the mark to jump to (handleJumpChord,
+	// jump_mark.go). Mirrors pendingMark, including the SetMode disarm.
+	pendingJumpMark bool
+
+	// backJump is the vim-style '' back-jump slot: the single most
+	// recently departed location, written immediately before a mark
+	// jump navigates (and before the back-jump itself, so repeating it
+	// toggles between two locations). nil = nothing recorded yet. NOT
+	// per-workspace — cleared on workspace switch, because it only
+	// ever holds the latest departure.
+	backJump *Location
+
 	// layout owns the per-frame layout geometry (horizontal bands for
 	// mouse hit-testing + per-pane content heights for pageSize). See
 	// internal/ui/panellayout.go.
@@ -1597,6 +1610,11 @@ func (a *App) SetMode(mode Mode) {
 	// doing its own job.
 	if a.pendingMark {
 		a.pendingMark = false
+		a.statusbar.SetHelpHint(a.defaultHelpHint())
+	}
+	// Same for a pending `'` chord (handleJumpChord).
+	if a.pendingJumpMark {
+		a.pendingJumpMark = false
 		a.statusbar.SetHelpHint(a.defaultHelpHint())
 	}
 	if mode == ModeInsert {

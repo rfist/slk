@@ -42,6 +42,7 @@ type KeyMap struct {
 	OpenLink            key.Binding
 	MarkUnread          key.Binding
 	MarkSet             key.Binding
+	JumpMark            key.Binding
 	NextUnread          key.Binding
 	PrevUnread          key.Binding
 	WorkspaceFinder     key.Binding
@@ -104,6 +105,7 @@ func DefaultKeyMap() KeyMap {
 		OpenLink:        key.NewBinding(key.WithKeys("o"), key.WithHelp("o", "open link in message")),
 		MarkUnread:      key.NewBinding(key.WithKeys("U"), key.WithHelp("U", "mark unread")),
 		MarkSet:         key.NewBinding(key.WithKeys("m"), key.WithHelp("m", "set mark")),
+		JumpMark:        key.NewBinding(key.WithKeys("'", "`"), key.WithHelp("'/`", "jump to mark")),
 		NextUnread:      key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "next unread channel")),
 		PrevUnread:      key.NewBinding(key.WithKeys("A"), key.WithHelp("A", "prev unread channel")),
 		// Keyless: ctrl+w is reserved as the window-command prefix
