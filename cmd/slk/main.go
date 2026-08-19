@@ -1849,6 +1849,11 @@ func run() error {
 				return db.DeleteMark(teamID, letter)
 			},
 		}))
+		// [marks] options: persist_all (default off) and
+		// show_jump_overlay (default on, resolved from the *bool so an
+		// explicit false is distinguishable from unset).
+		app.SetMarksPersistAll(cfg.Marks.PersistAll)
+		app.SetShowJumpOverlay(cfg.EffectiveShowJumpOverlay())
 
 		app.SetReactionService(ui.NewReactionService(
 			func(channelID ids.ChannelID, messageTS ids.MessageTS, emojiName string) error {
