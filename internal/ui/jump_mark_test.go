@@ -576,3 +576,47 @@ func TestBackJump_RefusedJumpDoesNotWriteSlot(t *testing.T) {
 		t.Fatalf("unresolvable-channel refusal wrote the slot: %+v", app.backJump)
 	}
 }
+
+// A jump taken from the Threads list, or with the thread panel focused,
+// must bring the user to the message. The in-place completion path
+// (same channel, already loaded) skips ChannelSelectedMsg and with it
+// the view/focus reset that arm performs — without doing it in
+// applyLocation, the selection moves in a pane the user is not looking
+// at and the jump reads as "nothing happened".
+func TestJumpMark_FromThreadsViewShowsTheMessage(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		view    View
+		focused Panel
+	}{
+		{"threads list", ViewThreads, PanelMessages},
+		{"threads list, thread panel focused", ViewThreads, PanelThread},
+		{"channel view, thread panel focused", ViewChannels, PanelThread},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			app := jumpMarkTestApp(t)
+			app.Update(ChannelSelectedMsg{ID: "C1", Name: "one", Type: "channel"})
+			app.messagepane.SetMessages([]messages.MessageItem{
+				{TS: "1.0", Text: "old"},
+				{TS: "2.0", Text: "new"},
+			})
+			app.messagepane.SelectByTS("2.0")
+			seedMark(t, app, "a", Location{TeamID: "T1", ChannelID: "C1", MessageTS: "1.0"})
+
+			app.view = tc.view
+			app.focusedPanel = tc.focused
+
+			pressJumpChord(app, 'a')
+
+			if app.view != ViewChannels {
+				t.Errorf("view = %v, want ViewChannels — the jump must be visible", app.view)
+			}
+			if app.focusedPanel != PanelMessages {
+				t.Errorf("focusedPanel = %v, want PanelMessages", app.focusedPanel)
+			}
+			if sel, ok := app.messagepane.SelectedMessage(); !ok || sel.TS != "1.0" {
+				t.Errorf("selected = %+v ok=%v, want the marked message 1.0", sel, ok)
+			}
+		})
+	}
+}

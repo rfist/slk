@@ -82,6 +82,16 @@ func (a *App) applyLocation(loc Location, fromHistory bool) (tea.Cmd, bool) {
 	if !fromHistory && string(loc.ChannelID) == a.activeChannelID {
 		// Already viewing the channel; the loaded buffer is as good
 		// as it gets, so complete authoritatively right now.
+		//
+		// This path skips ChannelSelectedMsg, and with it the view and
+		// focus reset that arm performs (reducer_channels.go). Without
+		// doing it here, a jump taken from the Threads list or with the
+		// thread panel focused moves the selection in a pane the user
+		// is not looking at, and reads as "nothing happened". A
+		// thread-bearing location re-focuses the thread panel below,
+		// via openThreadForPermalink.
+		a.view = ViewChannels
+		a.focusedPanel = PanelMessages
 		return a.completePendingLinkNav(a.activeChannelID, true), true
 	}
 	id, n, t := string(loc.ChannelID), name, chType
