@@ -25,7 +25,10 @@ without confirmation, matching vim.
 
 - **WHEN** the user sets mark `a` while a reply in an open thread is
   selected
-- **THEN** mark `a` records that channel, that thread, and that reply
+- **THEN** mark `a` records that thread, that reply, and **the channel
+  the thread belongs to** -- which is not necessarily the channel most
+  recently opened, since a thread may be read from a list spanning
+  several channels
 
 #### Scenario: Overwriting an existing mark
 
@@ -79,6 +82,22 @@ thread panel if the mark names a thread, and select the marked message.
   loaded history
 - **THEN** the surrounding history is loaded and the marked message is
   selected
+
+#### Scenario: Jump taken from a different view
+
+- **WHEN** the user jumps to a mark while looking at something other
+  than the channel timeline -- a list of threads, or a thread panel --
+- **THEN** the app SHALL show the marked message, changing whatever
+  view and focus state is needed for it to be visible
+- **AND** a thread panel left open from before the jump SHALL NOT
+  remain on screen unless the mark itself names a thread
+
+#### Scenario: Jump completes while the channel is still loading
+
+- **WHEN** the user jumps to a mark in a channel whose history is still
+  being fetched
+- **THEN** the marked message SHALL still be the selected one once
+  loading settles, rather than being displaced by the arriving data
 
 #### Scenario: Jump to an unset mark
 
