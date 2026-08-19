@@ -94,15 +94,50 @@ thread panel if the mark names a thread, and select the marked message.
 
 ### Requirement: A mark jump is reversible
 
-A jump to a mark SHALL record the location the user is leaving in the
-navigation history, so that navigating back after a mark jump returns
-the user to where they were, at the position they were at.
+A jump to a mark SHALL record the location the user is leaving, and the
+user SHALL be able to return to it with a dedicated back-jump. The
+back-jump SHALL hold only the most recently departed location, replaced
+on every jump, and SHALL work whether or not the jump changed channel.
+Taking the back-jump SHALL itself record the location it departs, so
+that repeating it returns the user to where they just were.
 
-#### Scenario: Going back after a mark jump
+#### Scenario: Back-jump after a jump to another channel
 
-- **WHEN** the user jumps to a mark and then navigates back
+- **WHEN** the user jumps to a mark in a different channel and then
+  takes the back-jump
 - **THEN** they return to the channel and message they were on before
   the jump
+
+#### Scenario: Back-jump after a jump within the same channel
+
+- **WHEN** the user jumps to a mark in the channel they are already
+  viewing and then takes the back-jump
+- **THEN** they return to the message they were on before the jump
+
+#### Scenario: The back-jump remembers only the latest departure
+
+- **WHEN** the user jumps to one mark, then jumps to another, and then
+  takes the back-jump
+- **THEN** they return to the location they left on the *second* jump,
+  not the first
+
+#### Scenario: Repeating the back-jump returns
+
+- **WHEN** the user jumps to a mark, takes the back-jump, and takes the
+  back-jump again
+- **THEN** they are back at the mark, because the first back-jump
+  recorded the location it departed
+
+#### Scenario: Back-jump with nothing recorded
+
+- **WHEN** the user takes the back-jump without having jumped to a mark
+- **THEN** nothing changes and no error is raised
+
+#### Scenario: Navigation history still records a cross-channel jump
+
+- **WHEN** the user jumps to a mark in a different channel
+- **THEN** the channel they left is recorded in the navigation history
+  with the position they were at, as any other channel change is
 
 ### Requirement: A mark whose target is gone survives
 

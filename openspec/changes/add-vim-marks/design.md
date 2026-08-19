@@ -134,6 +134,39 @@ it is wrong: the location you currently occupy is then never in the
 stack, so the cursor trails by one and `Ctrl+H` moves two places back
 instead of one.
 
+### The back-jump is its own slot, not a navigation-history entry
+
+Vim has two reversal mechanisms and slk needs both, because they answer
+different questions. The jumplist (`Ctrl+O`/`Ctrl+I`, slk's
+`Ctrl+H`/`Ctrl+K`) answers "where was I before, over the last N moves".
+The `'` pseudo-mark answers "put me back where I just was", and it is a
+single slot overwritten on every jump.
+
+slk's navigation history is **channel-granular**: `navHistoryStore.Push`
+dedupes on `ChannelID`, so the stack holds at most one entry per
+channel at the cursor. That is the right model for back/forward through
+visited channels, and it is what the existing tests pin. It cannot
+represent two positions within one channel, so it cannot on its own make
+a same-channel mark jump reversible.
+
+The back-jump is therefore a separate one-`Location` slot on `App`,
+written immediately before every mark jump and before every back-jump.
+It is independent of the navigation history, which continues to record
+cross-channel mark jumps exactly as it records any other channel change.
+Writing the slot on the back-jump itself is what makes repeated
+back-jumps toggle between two locations, matching vim.
+
+*Alternative rejected:* dropping the channel-identity dedupe so the
+history could hold two entries for one channel. Every re-selection of
+the current channel at a different position would then grow the stack,
+which is the noise the dedupe exists to prevent.
+
+*Alternative rejected:* making the whole navigation history
+position-granular, like vim's real jumplist. That is a larger and
+genuinely useful change -- it would also let `Ctrl+H` retrace within a
+channel after search hits -- but it redesigns machinery this change has
+already verified, for a benefit the single slot delivers.
+
 ### Marks reuse the history's degradation rules, but never self-delete
 
 `navHistoryStore.Walk` drops entries whose channel no longer resolves,

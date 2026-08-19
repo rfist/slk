@@ -198,6 +198,28 @@
       to the pre-jump position; a foreign-workspace mark is refused and
       retained; a dead mark survives a failed jump.
 
+- [ ] 7.7 Add a back-jump slot to `App`: one `Location` plus a bool (or
+      a `*Location`) meaning "nothing recorded yet". Not per workspace --
+      it is cleared on workspace switch rather than kept per team, since
+      it only ever holds the latest departure.
+- [ ] 7.8 Write the slot with the current location immediately before a
+      mark jump navigates, whether or not the jump changes channel. Skip
+      the write when the jump is refused (unset letter, foreign
+      workspace, unresolvable channel) -- a refused jump departs
+      nothing.
+- [ ] 7.9 Bind the back-jump: `''` and backtick-backtick, i.e. the mark
+      letter position of the existing `'` chord accepting `'` or
+      backtick instead of a letter. Taking it navigates to the slot via
+      the same `applyLocation` path as a mark jump, and writes the
+      departing location back into the slot so repeating it toggles.
+      With nothing recorded it is a silent no-op.
+- [ ] 7.10 Tests, one per scenario in the spec's "A mark jump is
+      reversible": back-jump after a cross-channel jump; back-jump after
+      a same-channel jump; only the latest departure is held; repeating
+      the back-jump returns to the mark; no-op when nothing is recorded;
+      the navigation history still records a cross-channel jump. Mutation-check
+      the same-channel case and the toggle.
+
 ## 8. The marks overlay
 
 - [ ] 8.1 Add `internal/ui/marks/` as a self-contained widget package
