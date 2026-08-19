@@ -6,7 +6,12 @@
 // applyOverlays (view_overlays.go) and driven by handleMarksMode.
 package ui
 
-import "github.com/gammons/slk/internal/ui/marks"
+import (
+	"strings"
+
+	"github.com/gammons/slk/internal/emoji"
+	"github.com/gammons/slk/internal/ui/marks"
+)
 
 // SetShowJumpOverlay toggles whether beginning a jump (') shows the
 // marks list. Defaults to on. The option never affects the :marks
@@ -26,8 +31,8 @@ func (a *App) marksRows() []marks.Row {
 		rows = append(rows, marks.Row{
 			Letter:      m.Letter,
 			ChannelName: m.ChannelName,
-			AuthorName:  m.AuthorName,
-			Excerpt:     m.Excerpt,
+			AuthorName:  previewText(m.AuthorName),
+			Excerpt:     previewText(m.Excerpt),
 		})
 	}
 	return rows
@@ -46,4 +51,20 @@ func (a *App) openMarksOverlay() {
 // visible.
 func (a *App) refreshMarksOverlay() {
 	a.marksOverlay.SetRows(a.marksRows())
+}
+
+// previewText renders stored snapshot text for one overlay row:
+// :shortcode: sequences resolved to glyphs (emoji.Sprint, the same
+// helper the sidebar uses), and every run of whitespace collapsed to a
+// single space.
+//
+// The collapse is not cosmetic. Slack message bodies routinely contain
+// newlines, and a raw excerpt spilled down the overlay as several lines,
+// breaking the one-row-per-mark layout and the box borders with it.
+//
+// Applied at display time rather than at mark time so marks recorded
+// before this existed render correctly too, and so the stored snapshot
+// stays the faithful original.
+func previewText(s string) string {
+	return strings.Join(strings.Fields(emoji.Sprint(s)), " ")
 }

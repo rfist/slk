@@ -142,3 +142,20 @@ func TestMarksOverlay_SuppressedWhenOptionOff(t *testing.T) {
 		t.Fatal("with the overlay off, ' must arm the silent pending-key flow")
 	}
 }
+
+// Overlay rows render shortcodes as glyphs and stay on one line.
+// A raw excerpt spilled newlines down the box, breaking the
+// one-row-per-mark layout; unresolved :shortcode: text is also just
+// wrong next to every other surface in the app.
+func TestMarksOverlay_PreviewResolvesEmojiAndCollapsesNewlines(t *testing.T) {
+	if got := previewText(":pretzel: WWF :pretzel:"); strings.Contains(got, ":pretzel:") {
+		t.Errorf("shortcodes not resolved: %q", got)
+	}
+	got := previewText("Hello team,\nour WWF Wednesday is coming\n\nup on July 22.")
+	if strings.ContainsAny(got, "\n\r") {
+		t.Errorf("newlines survived into a row: %q", got)
+	}
+	if !strings.Contains(got, "Hello team, our WWF Wednesday") {
+		t.Errorf("collapse mangled the text: %q", got)
+	}
+}

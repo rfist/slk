@@ -264,3 +264,35 @@ func TestSetMark_ModeChangeDisarmsPendingChord(t *testing.T) {
 		t.Fatal("j was swallowed as a mark letter after the mode change")
 	}
 }
+
+// A mark set on a thread reply must record the THREAD's channel, not
+// whatever activeChannelID happens to be. In the Threads view the panel
+// shows a thread from any channel while activeChannelID still names the
+// last channel opened, so recording the active channel stored a thread
+// ts against a channel that has no such thread — jumping then opened an
+// empty panel reading "0 replies".
+func TestSetMark_ThreadReplyRecordsTheThreadsOwnChannel(t *testing.T) {
+	app := setMarkTestApp(t)
+	app.activeChannelID = "C1" // last channel opened
+	app.threadPanel.SetThread(
+		messages.MessageItem{TS: "P1", ThreadTS: "P1", Text: "parent"},
+		[]messages.MessageItem{{TS: "R1", ThreadTS: "P1", Text: "reply", UserName: "alice"}},
+		"C-OTHER", // the thread belongs to a different channel
+		"P1")
+	app.focusedPanel = PanelThread
+	app.threadPanel.SelectByIndex(1)
+
+	app.handleNormalMode(tea.KeyPressMsg{Code: 'm', Text: "m"})
+	app.handleNormalMode(tea.KeyPressMsg{Code: 'a', Text: "a"})
+
+	m, ok := app.marks.Load("T1", "a")
+	if !ok {
+		t.Fatal("mark a should exist")
+	}
+	if string(m.ChannelID) != "C-OTHER" {
+		t.Errorf("ChannelID = %q, want C-OTHER (the thread's channel, not the active one)", m.ChannelID)
+	}
+	if string(m.ThreadTS) != "P1" || string(m.MessageTS) != "R1" {
+		t.Errorf("thread/reply = %q/%q, want P1/R1", m.ThreadTS, m.MessageTS)
+	}
+}

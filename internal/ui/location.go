@@ -42,9 +42,19 @@ func (a *App) currentLocation() (Location, bool) {
 		if reply == nil {
 			return Location{}, false
 		}
+		// The thread's own channel, NOT activeChannelID. In the Threads
+		// view the panel shows a thread from any channel while
+		// activeChannelID still names whichever channel was last
+		// opened, so recording the active channel here stored a thread
+		// ts against a channel that has no such thread — the jump then
+		// opened an empty panel reading "0 replies".
+		channelID := a.threadPanel.ChannelID()
+		if channelID == "" {
+			channelID = a.activeChannelID
+		}
 		return Location{
 			TeamID:    ids.TeamID(a.activeTeamID),
-			ChannelID: ids.ChannelID(a.activeChannelID),
+			ChannelID: ids.ChannelID(channelID),
 			MessageTS: ids.MessageTS(reply.TS),
 			ThreadTS:  ids.ThreadTS(a.threadPanel.ThreadTS()),
 		}, true
