@@ -665,3 +665,42 @@ func TestJumpMark_SurvivesAuthoritativeReload(t *testing.T) {
 		t.Error("the target should be cleared once the authoritative pass has applied it")
 	}
 }
+
+// Jumping to a channel-level mark while a thread panel is open must
+// close that panel. The in-place path skips ChannelSelectedMsg, which
+// is where CloseThread normally runs, so without doing it here the
+// selection moves in the messages pane while the thread the user was
+// reading stays open beside it. Reproduced from a debug-log capture:
+// applyLocation inPlace=true view=ViewThreads panel=PanelThread
+// threadVisible=true, with no CloseThread following.
+func TestJumpMark_InPlaceClosesOpenThreadPanel(t *testing.T) {
+	app := jumpMarkTestApp(t)
+	app.Update(ChannelSelectedMsg{ID: "C1", Name: "one", Type: "channel"})
+	app.messagepane.SetMessages([]messages.MessageItem{
+		{TS: "1.0", Text: "old"},
+		{TS: "2.0", Text: "new"},
+	})
+	app.messagepane.SelectByTS("2.0")
+	seedMark(t, app, "a", Location{TeamID: "T1", ChannelID: "C1", MessageTS: "1.0"})
+
+	// Reading a thread in the Threads view when the jump is taken.
+	app.threadPanel.SetThread(
+		messages.MessageItem{TS: "P1", ThreadTS: "P1", Text: "parent"},
+		[]messages.MessageItem{{TS: "R1", ThreadTS: "P1", Text: "reply"}},
+		"C1", "P1")
+	app.threadVisible = true
+	app.view = ViewThreads
+	app.focusedPanel = PanelThread
+
+	pressJumpChord(app, 'a')
+
+	if app.threadVisible {
+		t.Error("the thread panel must close: a channel-level jump left the previous thread on screen")
+	}
+	if app.view != ViewChannels || app.focusedPanel != PanelMessages {
+		t.Errorf("view=%v panel=%v, want ViewChannels / PanelMessages", app.view, app.focusedPanel)
+	}
+	if sel, ok := app.messagepane.SelectedMessage(); !ok || sel.TS != "1.0" {
+		t.Errorf("selected = %+v ok=%v, want the marked message 1.0", sel, ok)
+	}
+}

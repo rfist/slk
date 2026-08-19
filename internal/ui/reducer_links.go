@@ -96,6 +96,15 @@ func (a *App) applyLocation(loc Location, fromHistory bool) (tea.Cmd, bool) {
 		// thread-bearing location re-focuses the thread panel below,
 		// via openThreadForPermalink.
 		a.view = ViewChannels
+		if a.threadVisible {
+			// ChannelSelectedMsg closes the thread panel on every
+			// channel switch, and the in-place path has to as well —
+			// otherwise a channel-level jump lands the selection in
+			// the messages pane while the thread the user was reading
+			// stays open beside it. A thread-bearing location reopens
+			// the correct thread below, via openThreadForPermalink.
+			a.CloseThread()
+		}
 		a.focusedPanel = PanelMessages
 		return a.completePendingLinkNav(a.activeChannelID, true), true
 	}
