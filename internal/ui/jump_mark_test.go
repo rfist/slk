@@ -49,17 +49,19 @@ func seedMark(t *testing.T, app *App, letter string, loc Location) {
 }
 
 // pressJumpChord arms ' and presses the letter, returning the cmd the
-// letter produced.
+// letter produced. With the jump overlay on (the default), ' opens the
+// overlay and the letter is handled in ModeMarks — matching how the
+// production entry path works.
 func pressJumpChord(app *App, letter rune) tea.Cmd {
 	app.handleNormalMode(tea.KeyPressMsg{Code: '\'', Text: "'"})
-	return app.handleNormalMode(tea.KeyPressMsg{Code: letter, Text: string(letter)})
+	return handleMarksMode(app, tea.KeyPressMsg{Code: letter, Text: string(letter)})
 }
 
 // pressBackJump arms ' and presses ' again (the back-jump), returning
 // the cmd it produced.
 func pressBackJump(app *App) tea.Cmd {
 	app.handleNormalMode(tea.KeyPressMsg{Code: '\'', Text: "'"})
-	return app.handleNormalMode(tea.KeyPressMsg{Code: '\'', Text: "'"})
+	return handleMarksMode(app, tea.KeyPressMsg{Code: '\'', Text: "'"})
 }
 
 // driveJump feeds a jump/back-jump command through the program loop:
@@ -356,6 +358,7 @@ func TestJumpMark_NonLetterCancelsSilently(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			app := jumpMarkTestApp(t)
+			app.SetShowJumpOverlay(false) // silent pending-key flow
 			app.Update(ChannelSelectedMsg{ID: "C1", Name: "one", Type: "channel"})
 
 			app.handleNormalMode(tea.KeyPressMsg{Code: '\'', Text: "'"})
@@ -371,6 +374,7 @@ func TestJumpMark_NonLetterCancelsSilently(t *testing.T) {
 
 func TestJumpMark_BacktickAliasArmsChord(t *testing.T) {
 	app := jumpMarkTestApp(t)
+	app.SetShowJumpOverlay(false) // the alias arms the silent pending-key flow
 	seedMark(t, app, "a", Location{TeamID: "T1", ChannelID: "C2", MessageTS: "10.0"})
 	app.Update(ChannelSelectedMsg{ID: "C1", Name: "one", Type: "channel"})
 
@@ -386,6 +390,7 @@ func TestJumpMark_BacktickAliasArmsChord(t *testing.T) {
 
 func TestJumpMark_ModeChangeDisarmsPendingChord(t *testing.T) {
 	app := jumpMarkTestApp(t)
+	app.SetShowJumpOverlay(false) // the pending-key flow is what SetMode must disarm
 	app.handleNormalMode(tea.KeyPressMsg{Code: '\'', Text: "'"})
 	if !app.pendingJumpMark {
 		t.Fatal("setup: pendingJumpMark should be armed")

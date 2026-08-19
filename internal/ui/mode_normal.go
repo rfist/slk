@@ -297,6 +297,14 @@ func handleNormalMode(a *App, msg tea.KeyMsg) tea.Cmd {
 		return nil
 
 	case key.Matches(msg, a.keys.JumpMark):
+		// With the jump overlay enabled (the default), ' opens the
+		// marks list; a letter then jumps immediately from there, so
+		// 'a behaves exactly as it does with the overlay suppressed.
+		if a.showJumpOverlay {
+			a.openMarksOverlay()
+			a.SetMode(ModeMarks)
+			return nil
+		}
 		a.pendingJumpMark = true
 		a.statusbar.SetHelpHint("'…")
 		return nil

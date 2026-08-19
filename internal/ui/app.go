@@ -34,6 +34,7 @@ import (
 	"github.com/gammons/slk/internal/ui/help"
 	"github.com/gammons/slk/internal/ui/imgrender"
 	"github.com/gammons/slk/internal/ui/linkpicker"
+	"github.com/gammons/slk/internal/ui/marks"
 	"github.com/gammons/slk/internal/ui/mentionpicker"
 	"github.com/gammons/slk/internal/ui/messages"
 	"github.com/gammons/slk/internal/ui/newmessagepicker"
@@ -354,6 +355,16 @@ type App struct {
 	// behind one set of accessors (see internal/ui/marks.go).
 	marks *marksStore
 
+	// marksOverlay is the marks list widget (internal/ui/marks/): one
+	// row per mark, rendered from the stored preview snapshot, opened
+	// by the ' chord and the :marks command.
+	marksOverlay marks.Model
+
+	// showJumpOverlay is the [marks] show_jump_overlay option: whether
+	// beginning a jump (' ) shows the marks list. Defaults to on; the
+	// option does not affect the :marks command, which always shows it.
+	showJumpOverlay bool
+
 	// search is the active in-channel search (nil = none).
 	// searchInput is the prompt buffer while in ModeSearch.
 	// searchGen is a monotonic generation counter: bumped on every
@@ -557,6 +568,8 @@ func NewApp() *App {
 		browserOpener:         openURLCmd,
 		navHistory:            newNavHistoryStore(),
 		marks:                 newMarksStore(),
+		marksOverlay:          marks.New(),
+		showJumpOverlay:       true,
 		clipboardRead:         defaultClipboardReader,
 		clipboardWrite:        defaultClipboardWriter,
 	}
