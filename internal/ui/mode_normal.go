@@ -10,8 +10,9 @@
 //     (page), G (bottom), Tab/h/l (focus next/prev), Ctrl-o/i
 //     (nav back/forward through visited channels)
 //   - layout toggles: s (sidebar), t (thread)
-//   - message ops: Y (copy permalink), y (yank text), E (edit), D (delete),
-//     M (mark unread), O (open image preview)
+//   - message ops: Y/C (copy permalink), y (yank text), E (edit),
+//     D (delete), U (mark unread), m (set mark), ' (jump to mark),
+//     O/v (open image preview)
 //   - reaction nav sub-state: r enters; arrows + Enter select
 //     (delegated to handleReactionNav / handleThreadReactionNav)
 //   - window commands: Ctrl-W prefix arms a pending sub-state; the
@@ -43,6 +44,21 @@ func handleNormalMode(a *App, msg tea.KeyMsg) tea.Cmd {
 		a.pendingWinCmd = false
 		a.statusbar.SetHelpHint(a.defaultHelpHint())
 		return a.handleWindowChord(msg)
+	}
+
+	// m pending sub-state: the next key names the mark to set
+	// (intercepted FIRST, like ctrl+w above).
+	if a.pendingMark {
+		a.pendingMark = false
+		a.statusbar.SetHelpHint(a.defaultHelpHint())
+		return a.handleMarkChord(msg)
+	}
+
+	// ' pending sub-state: the next key names the mark to jump to.
+	if a.pendingJumpMark {
+		a.pendingJumpMark = false
+		a.statusbar.SetHelpHint(a.defaultHelpHint())
+		return a.handleJumpChord(msg)
 	}
 
 	// Reaction-nav sub-state (intercept before normal keys).
@@ -280,6 +296,24 @@ func handleNormalMode(a *App, msg tea.KeyMsg) tea.Cmd {
 
 	case key.Matches(msg, a.keys.MarkUnread):
 		return a.markUnreadOfSelected()
+
+	case key.Matches(msg, a.keys.MarkSet):
+		a.pendingMark = true
+		a.statusbar.SetHelpHint("m…")
+		return nil
+
+	case key.Matches(msg, a.keys.JumpMark):
+		// With the jump overlay enabled (the default), ' opens the
+		// marks list; a letter then jumps immediately from there, so
+		// 'a behaves exactly as it does with the overlay suppressed.
+		if a.showJumpOverlay {
+			a.openMarksOverlay()
+			a.SetMode(ModeMarks)
+			return nil
+		}
+		a.pendingJumpMark = true
+		a.statusbar.SetHelpHint("'…")
+		return nil
 
 	case key.Matches(msg, a.keys.NextUnread):
 		return a.jumpToUnread(1)

@@ -38,10 +38,11 @@ func handleWorkspaceSearchMode(a *App, msg tea.KeyMsg) tea.Cmd {
 			return nil
 		}
 		if item.ChannelID == a.activeChannelID {
-			a.pendingLinkNav = &pendingLinkNav{
-				channelID: item.ChannelID,
-				messageTS: item.TS,
-				threadTS:  item.ThreadTS,
+			a.pendingLinkNav = &Location{
+				TeamID:    ids.TeamID(a.activeTeamID),
+				ChannelID: ids.ChannelID(item.ChannelID),
+				MessageTS: ids.MessageTS(item.TS),
+				ThreadTS:  ids.ThreadTS(item.ThreadTS),
 			}
 			return a.completePendingLinkNav(a.activeChannelID, true)
 		}
@@ -57,10 +58,11 @@ func handleWorkspaceSearchMode(a *App, msg tea.KeyMsg) tea.Cmd {
 				return ToastMsg{Text: "Not a member of #" + chName + " — join via ctrl+t to view"}
 			}
 		}
-		a.pendingLinkNav = &pendingLinkNav{
-			channelID: item.ChannelID,
-			messageTS: item.TS,
-			threadTS:  item.ThreadTS,
+		a.pendingLinkNav = &Location{
+			TeamID:    ids.TeamID(a.activeTeamID),
+			ChannelID: ids.ChannelID(item.ChannelID),
+			MessageTS: ids.MessageTS(item.TS),
+			ThreadTS:  ids.ThreadTS(item.ThreadTS),
 		}
 		return func() tea.Msg {
 			return ChannelSelectedMsg{ID: item.ChannelID, Name: name, Type: chType}

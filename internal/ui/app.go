@@ -35,6 +35,7 @@ import (
 	"github.com/gammons/slk/internal/ui/help"
 	"github.com/gammons/slk/internal/ui/imgrender"
 	"github.com/gammons/slk/internal/ui/linkpicker"
+	"github.com/gammons/slk/internal/ui/marks"
 	"github.com/gammons/slk/internal/ui/mentionpicker"
 	"github.com/gammons/slk/internal/ui/messages"
 	"github.com/gammons/slk/internal/ui/newmessagepicker"
@@ -144,6 +145,25 @@ type App struct {
 	// (vim window-command prefix). Esc or an unmapped key cancels;
 	// any mode change disarms (see SetMode).
 	pendingWinCmd bool
+
+	// pendingMark is true between an m press and its mark letter; the
+	// next key names the mark to set (handleMarkChord, set_mark.go).
+	// Mirrors pendingWinCmd: any non-letter — Esc included — cancels
+	// silently, matching vim.
+	pendingMark bool
+
+	// pendingJumpMark is true between a ' (or `) press and its mark
+	// letter; the next key names the mark to jump to (handleJumpChord,
+	// jump_mark.go). Mirrors pendingMark, including the SetMode disarm.
+	pendingJumpMark bool
+
+	// backJump is the vim-style '' back-jump slot: the single most
+	// recently departed location, written immediately before a mark
+	// jump navigates (and before the back-jump itself, so repeating it
+	// toggles between two locations). nil = nothing recorded yet. NOT
+	// per-workspace — cleared on workspace switch, because it only
+	// ever holds the latest departure.
+	backJump *Location
 
 	// layout owns the per-frame layout geometry (horizontal bands for
 	// mouse hit-testing + per-pane content heights for pageSize). See
@@ -338,8 +358,32 @@ type App struct {
 	// pendingLinkNav tracks an in-flight permalink navigation: the
 	// channel was (or is being) opened and the message-select /
 	// thread-open completes when that channel's messages land. See
-	// reducer_links.go.
-	pendingLinkNav *pendingLinkNav
+	// reducer_links.go. Every in-app jump (permalinks, marks, history
+	// walks) records its target here via applyLocation.
+	pendingLinkNav *Location
+
+	// pendingThreadReplyTS is the reply a thread permalink / history
+	// location named, carried across the async replies fetch and
+	// applied by the ThreadRepliesLoadedMsg arm once the replies land
+	// (thread.SelectByTS). Empty = no reply is owed. Mirrors the
+	// pendingLinkNav mechanism: the replies only exist after the fetch,
+	// so the target cannot be selected at open time.
+	pendingThreadReplyTS string
+
+	// marks owns the vim-style mark storage: an in-memory per-workspace
+	// tier for lowercase marks plus the SQLite `marks` table, merged
+	// behind one set of accessors (see internal/ui/marks.go).
+	marks *marksStore
+
+	// marksOverlay is the marks list widget (internal/ui/marks/): one
+	// row per mark, rendered from the stored preview snapshot, opened
+	// by the ' chord and the :marks command.
+	marksOverlay marks.Model
+
+	// showJumpOverlay is the [marks] show_jump_overlay option: whether
+	// beginning a jump (' ) shows the marks list. Defaults to on; the
+	// option does not affect the :marks command, which always shows it.
+	showJumpOverlay bool
 
 	// search is the active in-channel search (nil = none).
 	// searchInput is the prompt buffer while in ModeSearch.
@@ -543,6 +587,9 @@ func NewApp() *App {
 		workspaceDomains:      map[string]string{},
 		browserOpener:         openURLCmd,
 		navHistory:            newNavHistoryStore(),
+		marks:                 newMarksStore(),
+		marksOverlay:          marks.New(),
+		showJumpOverlay:       true,
 		clipboardRead:         defaultClipboardReader,
 		clipboardWrite:        defaultClipboardWriter,
 	}
@@ -758,17 +805,30 @@ func (a *App) navigateForward() tea.Cmd {
 	return a.walkNavCmd(+1)
 }
 
-// walkNavCmd is the shared wrapper that turns navHistoryStore.Walk's
-// pure result into the ChannelSelectedMsg{FromHistory: true} tea.Cmd
-// the App emits. step must be -1 or +1.
+// walkNavCmd is the shared wrapper for a history walk. A walk is also
+// a departure, so the position being left is folded into the current
+// entry first (UpdateCurrent) — this cannot wait for the
+// ChannelSelectedMsg arm, because Walk moves the cursor to the
+// destination before the message is reduced, and UpdateCurrent's
+// channel guard would then no-op against the destination entry. The
+// walked Location then goes through the shared applyLocation applier
+// with FromHistory: true, so the walk does not grow the stack. step
+// must be -1 or +1.
 func (a *App) walkNavCmd(step int) tea.Cmd {
-	id, name, ctype, ok := a.navHistory.Walk(a.activeTeamID, step, a.channels.Lookup)
+	a.navHistory.UpdateCurrent(a.activeTeamID, a.currentPosition())
+
+	loc, ok := a.navHistory.Walk(a.activeTeamID, step, a.channels.Lookup)
 	if !ok {
 		return nil
 	}
-	return func() tea.Msg {
-		return ChannelSelectedMsg{ID: id, Name: name, Type: ctype, FromHistory: true}
+	cmd, ok := a.applyLocation(loc, true)
+	if !ok {
+		// The channel resolved during Walk but no longer does here (a
+		// workspace refresh raced the walk): nothing further to do;
+		// Walk already removed the entry.
+		return nil
 	}
+	return cmd
 }
 
 // handleNormalMode moved to mode_normal.go (Phase 5k).
@@ -1638,6 +1698,16 @@ func (a *App) openThreadForSelectedMessage() tea.Cmd {
 // by openThreadForSelectedMessage (parent taken from the pane buffer)
 // and openThreadForPermalink (parent reconstructed from cache/stub).
 func (a *App) openThreadPanel(parent messages.MessageItem, channelID, threadTS string) tea.Cmd {
+	debuglog.General("marks/thread: openThreadPanel ch=%s thread=%s (was visible=%v thread=%s)",
+		channelID, threadTS, a.threadVisible, a.threadPanel.ThreadTS())
+	// Every thread open defines its own pending reply target. Clearing
+	// here stops one owed by an earlier open from surviving — the
+	// ThreadRepliesLoadedMsg arm returns early on a failed fetch
+	// (m.Replies == nil) without consuming it, so without this reset a
+	// later plain open of the same thread would inherit it and jump to
+	// a reply the user never asked for. Callers that DO want a reply
+	// selected set pendingThreadReplyTS after this returns.
+	a.pendingThreadReplyTS = ""
 	a.threadVisible = true
 	a.statusbar.SetInThread(true)
 	a.focusedPanel = PanelThread
@@ -1666,6 +1736,20 @@ func (a *App) SetMode(mode Mode) {
 	// other helpHint states aren't clobbered by unrelated mode changes.
 	if a.pendingWinCmd {
 		a.pendingWinCmd = false
+		a.statusbar.SetHelpHint(a.defaultHelpHint())
+	}
+	// Same for a pending `m` chord, and for the same reason: ctrl+c is
+	// intercepted in handleKey before mode dispatch, so it never reaches
+	// handleMarkChord to be cancelled there. Left armed, the next letter
+	// key in normal mode would be swallowed as a mark name instead of
+	// doing its own job.
+	if a.pendingMark {
+		a.pendingMark = false
+		a.statusbar.SetHelpHint(a.defaultHelpHint())
+	}
+	// Same for a pending `'` chord (handleJumpChord).
+	if a.pendingJumpMark {
+		a.pendingJumpMark = false
 		a.statusbar.SetHelpHint(a.defaultHelpHint())
 	}
 	if mode == ModeInsert {
@@ -1783,6 +1867,10 @@ func (a *App) ToggleThread() {
 }
 
 func (a *App) CloseThread() {
+	// A pending reply target belongs to the open it was set for.
+	a.pendingThreadReplyTS = ""
+	debuglog.General("marks/thread: CloseThread was=%v thread=%s ch=%s view=%d panel=%d",
+		a.threadVisible, a.threadPanel.ThreadTS(), a.threadPanel.ChannelID(), a.view, a.focusedPanel)
 	a.clearSelections()
 	a.threadVisible = false
 	a.statusbar.SetInThread(false)

@@ -207,6 +207,9 @@ func reduceWorkspaceReady(a *App, m WorkspaceReadyMsg) tea.Cmd {
 		// otherwise, which would leave live self-reactions unstyled.
 		a.SetCurrentUserID(m.UserID)
 		a.activeTeamID = m.TeamID
+		// The back-jump slot is not per-workspace: it holds the latest
+		// departure, which is meaningless once the workspace changes.
+		a.backJump = nil
 		pres, dndEnabled, dndEnd, _ := a.presence.Status(a.activeTeamID)
 		a.statusbar.SetStatus(pres, dndEnabled, dndEnd)
 		a.workspaceRail.SelectByID(m.TeamID)
@@ -317,6 +320,9 @@ func reduceWorkspaceSwitched(a *App, m WorkspaceSwitchedMsg) tea.Cmd {
 	// current user (see WorkspaceReadyMsg above).
 	a.SetCurrentUserID(m.UserID)
 	a.activeTeamID = m.TeamID
+	// The back-jump slot is not per-workspace: clear it on switch (see
+	// WorkspaceReadyMsg).
+	a.backJump = nil
 	pres, dndEnabled, dndEnd, _ := a.presence.Status(a.activeTeamID)
 	a.statusbar.SetStatus(pres, dndEnabled, dndEnd)
 	// Apply per-workspace theme. Must run on Update goroutine so

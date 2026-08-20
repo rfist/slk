@@ -25,13 +25,15 @@ type commandFunc func(a *App, args []string) tea.Cmd
 // commands maps a command name to its handler. Names are matched
 // exactly (no prefix matching); aliases get their own entries.
 var commands = map[string]commandFunc{
-	"ws":      cmdWorkspaceFinder,
-	"sp":      cmdSplit,
-	"vsp":     cmdVSplit,
-	"q":       cmdCloseWindow,
-	"only":    cmdOnlyWindow,
-	"on":      cmdOnlyWindow,
-	"version": cmdVersion,
+	"ws":       cmdWorkspaceFinder,
+	"marks":    cmdMarks,
+	"delmarks": cmdDelMarks,
+	"sp":       cmdSplit,
+	"vsp":      cmdVSplit,
+	"q":        cmdCloseWindow,
+	"only":     cmdOnlyWindow,
+	"on":       cmdOnlyWindow,
+	"version":  cmdVersion,
 }
 
 // cmdVersion toasts the running binary's build info (set by main via
@@ -64,6 +66,33 @@ func cmdOnlyWindow(a *App, _ []string) tea.Cmd {
 func cmdWorkspaceFinder(a *App, _ []string) tea.Cmd {
 	a.workspaceFinder.Open()
 	a.SetMode(ModeWorkspaceFinder)
+	return nil
+}
+
+// cmdMarks opens the marks overlay. Unlike the ' chord it ALWAYS shows
+// the overlay — the show_jump_overlay option suppresses the overlay on
+// the jump key only, never the list-marks command.
+func cmdMarks(a *App, _ []string) tea.Cmd {
+	a.openMarksOverlay()
+	a.SetMode(ModeMarks)
+	return nil
+}
+
+// cmdDelMarks deletes marks by letter. Each whitespace-separated token
+// is a run of mark letters, so both `:delmarks abc` and `:delmarks a
+// b c` name the same marks (consistent with the layer's
+// strings.Fields tokenization). Non-letters are ignored; deleting an
+// unset letter is a harmless no-op. Uses the same marksStore.Delete the
+// overlay's row delete action calls, so the two surfaces cannot
+// diverge.
+func cmdDelMarks(a *App, args []string) tea.Cmd {
+	for _, arg := range args {
+		for i := 0; i < len(arg); i++ {
+			if isMarkLetter(arg[i]) {
+				a.marks.Delete(a.activeTeamID, string(arg[i]))
+			}
+		}
+	}
 	return nil
 }
 
