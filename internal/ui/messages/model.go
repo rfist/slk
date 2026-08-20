@@ -3492,16 +3492,25 @@ func FormatDateSeparator(dateStr string) string {
 	if err != nil {
 		return dateStr
 	}
+	// Compare calendar days, not elapsed time. DateFromTS builds dateStr
+	// from the local day, so the distance has to be measured between two
+	// midnights anchored to the same zone -- mixing d (parsed as UTC) with
+	// a local midnight offsets the delta by the UTC offset, which east of
+	// UTC drags yesterday's divider under "Today". Both endpoints are
+	// re-anchored to UTC so the subtraction is always whole days, which
+	// also keeps a DST-shortened day from rounding a boundary the wrong
+	// way.
 	now := time.Now()
-	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
-	diff := today.Sub(d).Hours() / 24
+	dDay := time.Date(d.Year(), d.Month(), d.Day(), 0, 0, 0, 0, time.UTC)
+	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
+	days := int(today.Sub(dDay).Hours() / 24)
 
 	switch {
-	case diff < 1:
+	case days <= 0:
 		return "Today"
-	case diff < 2:
+	case days == 1:
 		return "Yesterday"
-	case diff < 7:
+	case days < 7:
 		return d.Format("Monday")
 	default:
 		return d.Format("Monday, January 2, 2006")
