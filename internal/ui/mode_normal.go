@@ -7,8 +7,8 @@
 //     prompt), Ctrl-Y (theme switcher), ? (help),
 //     S (presence menu), R (reaction picker)
 //   - navigation: j/k (selection), Ctrl-D/U (half-page), C-f/b
-//     (page), G (bottom), Tab/h/l (focus next/prev), Ctrl-o/i
-//     (nav back/forward through visited channels)
+//     (page), gg (top), G (bottom), Tab/h/l (focus next/prev),
+//     Ctrl-o/i (nav back/forward through visited channels)
 //   - layout toggles: s (sidebar), t (thread)
 //   - message ops: y (copy permalink), E (edit), D (delete),
 //     M (mark unread), O (open image preview)
@@ -43,6 +43,13 @@ func handleNormalMode(a *App, msg tea.KeyMsg) tea.Cmd {
 		a.pendingWinCmd = false
 		a.statusbar.SetHelpHint(a.defaultHelpHint())
 		return a.handleWindowChord(msg)
+	}
+
+	// g pending sub-state: a second `g` completes the vim `gg` jump.
+	if a.pendingGoTop {
+		a.pendingGoTop = false
+		a.statusbar.SetHelpHint(a.defaultHelpHint())
+		return a.handleGoTopChord(msg)
 	}
 
 	// Reaction-nav sub-state (intercept before normal keys).
@@ -92,6 +99,11 @@ func handleNormalMode(a *App, msg tea.KeyMsg) tea.Cmd {
 	case key.Matches(msg, a.keys.WindowPrefix):
 		a.pendingWinCmd = true
 		a.statusbar.SetHelpHint("ctrl+w …")
+		return nil
+
+	case key.Matches(msg, a.keys.Top):
+		a.pendingGoTop = true
+		a.statusbar.SetHelpHint("g …")
 		return nil
 
 	case key.Matches(msg, a.keys.SearchMode):
@@ -313,6 +325,17 @@ func handleNormalMode(a *App, msg tea.KeyMsg) tea.Cmd {
 				}
 			}
 		}
+	}
+	return nil
+}
+
+// handleGoTopChord consumes the key following the first `g`. Only a
+// second `g` acts (vim's `gg`); every other key — Esc included —
+// cancels silently and is swallowed, matching handleWindowChord and
+// vim's treatment of `g` as a prefix rather than a command.
+func (a *App) handleGoTopChord(msg tea.KeyMsg) tea.Cmd {
+	if key.Matches(msg, a.keys.Top) {
+		return a.handleGoToTop()
 	}
 	return nil
 }

@@ -145,6 +145,13 @@ type App struct {
 	// any mode change disarms (see SetMode).
 	pendingWinCmd bool
 
+	// pendingGoTop is true between the first and second `g` of the
+	// vim `gg` chord (handleGoTopChord, mode_normal.go). Mirrors
+	// pendingWinCmd: a second `g` jumps to the top of the focused
+	// panel, anything else — Esc included — cancels silently, and any
+	// mode change disarms (see SetMode).
+	pendingGoTop bool
+
 	// layout owns the per-frame layout geometry (horizontal bands for
 	// mouse hit-testing + per-pane content heights for pageSize). See
 	// internal/ui/panellayout.go.
@@ -1372,6 +1379,28 @@ func (a *App) flushScrollCoalesce() tea.Cmd {
 	return a.applyScrollMove(a.scrollPanel, n)
 }
 
+// handleGoToTop is the `gg` half of the vim top/bottom pair — the
+// mirror of handleGoToBottom, panel for panel. Every pane already had
+// a GoToTop; until the `gg` chord landed nothing in the key handler
+// reached them, so `g` did nothing despite the help overlay listing it.
+func (a *App) handleGoToTop() tea.Cmd {
+	switch a.focusedPanel {
+	case PanelSidebar:
+		a.sidebar.GoToTop()
+	case PanelMessages:
+		if a.view == ViewThreads {
+			a.threadsView.GoToTop()
+			// gg is a one-shot jump — fire the fetch immediately,
+			// same as G (see handleGoToBottom).
+			return a.openSelectedThreadCmd(false)
+		}
+		a.messagepane.GoToTop()
+	case PanelThread:
+		a.threadPanel.GoToTop()
+	}
+	return nil
+}
+
 func (a *App) handleGoToBottom() tea.Cmd {
 	switch a.focusedPanel {
 	case PanelSidebar:
@@ -1612,6 +1641,11 @@ func (a *App) SetMode(mode Mode) {
 	// other helpHint states aren't clobbered by unrelated mode changes.
 	if a.pendingWinCmd {
 		a.pendingWinCmd = false
+		a.statusbar.SetHelpHint(a.defaultHelpHint())
+	}
+	// Same for a half-typed `gg`, and for the same reason.
+	if a.pendingGoTop {
+		a.pendingGoTop = false
 		a.statusbar.SetHelpHint(a.defaultHelpHint())
 	}
 	if mode == ModeInsert {
