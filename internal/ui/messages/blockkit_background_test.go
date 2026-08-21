@@ -60,14 +60,19 @@ func blockLinesFor(t *testing.T, blocks []blockkit.Block) string {
 		},
 		WrapText: WordWrap,
 	}, 60)
-	// Mirror the host: a gutter prefix whose closing reset is what
-	// stripped the background, then the fix under test.
+	// Mirror the host's ORDER exactly: the background treatment runs
+	// over the Block Kit lines first, and placeAvatarBeside prepends
+	// the gutter afterwards. Getting this backwards hides the bug —
+	// the gutter's closing reset is what strips the background, and if
+	// it is inside the string being treated, the treatment patches it
+	// and the test passes against broken code.
+	treated := WithBackground(res.Lines, BgANSI())
 	gutter := styles.MessageText.Render("     ")
 	var lines []string
-	for _, l := range res.Lines {
+	for _, l := range strings.Split(treated, "\n") {
 		lines = append(lines, gutter+l)
 	}
-	return ReapplyBgAfterResets(strings.Join(lines, "\n"), BgANSI())
+	return strings.Join(lines, "\n")
 }
 
 func TestBlockKitLines_EveryTextRunKeepsABackground(t *testing.T) {
@@ -109,5 +114,28 @@ func TestRunsWithoutBackground_DetectsTheDefect(t *testing.T) {
 	broken := styles.MessageText.Render("     ") + "unstyled text\x1b[3mitalic\x1b[m"
 	if bare := runsWithoutBackground(broken); len(bare) == 0 {
 		t.Error("detector found nothing in a deliberately broken line")
+	}
+}
+
+// WithBackground must do BOTH halves: prefix each line, and patch after
+// each reset inside it. The v1 fix did only the second and left the
+// run at the start of every line bare.
+func TestWithBackground_PrefixesAndPatches(t *testing.T) {
+	styles.Apply("nord", config.Theme{})
+	bg := BgANSI()
+
+	got := WithBackground([]string{"plain\x1b[mtail"}, bg)
+	if !strings.HasPrefix(got, bg) {
+		t.Errorf("line not prefixed with the background: %q", got)
+	}
+	if !strings.Contains(got, "\x1b[m"+bg) {
+		t.Errorf("background not re-applied after the reset: %q", got)
+	}
+}
+
+func TestWithBackground_EmptyBackgroundIsPassthrough(t *testing.T) {
+	got := WithBackground([]string{"a", "b"}, "")
+	if got != "a\nb" {
+		t.Errorf("got %q, want the lines joined untouched", got)
 	}
 }
