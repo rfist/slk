@@ -1911,7 +1911,12 @@ func (m *Model) renderThreadMessage(msg messages.MessageItem, width int, userNam
 	bkBlock := ""
 	bkLineCount := len(bkLines)
 	if bkLineCount > 0 {
-		bkBlock = "\n" + strings.Join(bkLines, "\n")
+		// Same background re-application the message pane does; see the
+		// comment at the matching site in messages/model.go. Block Kit
+		// lines have no outer background-providing style, so without
+		// this the run after the gutter's closing reset draws on the
+		// terminal default instead of the theme's.
+		bkBlock = "\n" + messages.ReapplyBgAfterResets(strings.Join(bkLines, "\n"), messages.BgANSI())
 	}
 
 	var reactionLine string
