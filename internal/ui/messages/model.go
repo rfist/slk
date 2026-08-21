@@ -1664,16 +1664,6 @@ func (m *Model) renderMessageEntry(i int, width int, cs cacheStyles, stats *entr
 	}
 	filledNormal := cs.borderFill.Width(width - 1).Render(rendered)
 	renderedTinted := RepaintBgToSelectionTint(rendered, m.focused)
-	if i == m.selected && debuglog.Enabled() {
-		// Ground truth for the "selection tint stops at the glyphs"
-		// report: the exact bytes going into the tinted fill, before
-		// and after substitution, plus the two colours the
-		// substitution is matching on. Selected message only, and
-		// truncated, so this stays readable.
-		debuglog.General("tint: bg_from=%q tint_to=%q focused=%v", BgANSI(), SelectionTintBgANSI(m.focused), m.focused)
-		debuglog.General("tint: pre =%q", truncForLog(rendered, 1200))
-		debuglog.General("tint: post=%q", truncForLog(renderedTinted, 1200))
-	}
 	selectedFill := lipgloss.NewStyle().Background(styles.SelectionTintColor(m.focused)).Width(width - 1).Render(renderedTinted)
 	normal := cs.borderInvis.Render(filledNormal)
 	selected := cs.borderSelect.Render(selectedFill)
@@ -3606,14 +3596,4 @@ func RemoveUserID(ids []string, userID string) []string {
 		}
 	}
 	return out
-}
-
-// truncForLog caps a string at n bytes for debug logging, marking the
-// cut so a truncated dump is never mistaken for a complete one.
-// Diagnostic helper for the selection-tint investigation.
-func truncForLog(s string, n int) string {
-	if len(s) <= n {
-		return s
-	}
-	return s[:n] + "…<truncated>"
 }
