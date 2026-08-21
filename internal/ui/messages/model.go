@@ -580,6 +580,14 @@ func (m *Model) Version() int64 { return m.version }
 // When no RichTextBlock is present (the overwhelmingly common case
 // for user-typed messages) this is a zero-cost passthrough of
 // msg.Text.
+//
+// It returns "" when the message's OTHER blocks already carry the body.
+// Slack defines `text` as a notification fallback whenever `blocks` is
+// present, so an app that sends a section block plus a matching text
+// field is describing one body twice; the blockkit renderer draws the
+// blocks separately, and returning msg.Text here as well printed the
+// whole message twice (observed on a workplace bot's daily out-of-office
+// post). blockkit.RendersBody decides which blocks count.
 func MessageTextSource(msg MessageItem) string {
 	for _, b := range msg.Blocks {
 		if rt, ok := b.(blockkit.RichTextBlock); ok {
@@ -587,6 +595,9 @@ func MessageTextSource(msg MessageItem) string {
 				return reconstructed
 			}
 		}
+	}
+	if blockkit.RendersBody(msg.Blocks) {
+		return ""
 	}
 	return msg.Text
 }
