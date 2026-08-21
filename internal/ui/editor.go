@@ -66,10 +66,39 @@ func (a *App) beginEditorCompose() tea.Cmd {
 	}
 	a.editorTempPath = path
 
-	c := exec.Command(editorCommand(), path)
-	return tea.ExecProcess(c, func(err error) tea.Msg {
+	return tea.ExecProcess(editorExecCmd(path), func(err error) tea.Msg {
 		return editorFinishedMsg{Path: path, Panel: panel, Err: err}
 	})
+}
+
+// editorExecCmd builds the editor command with all three standard
+// streams bound to the real terminal.
+//
+// This is not decoration, and leaving them nil is the bug it fixes.
+// tea.ExecProcess fills in any stream the caller left nil — stdout
+// becomes the Program's output writer, which for slk is the sixel
+// FrameOutput wrapper, not an *os.File. os/exec only hands a child a
+// real file descriptor when the field IS an *os.File; anything else
+// gets an os.Pipe plus a copying goroutine. So the editor was being
+// launched with a pipe on stdout: isatty fails, TIOCGWINSZ on it fails
+// so the editor sizes itself from a fallback, and every byte it writes
+// takes an extra hop through a mutex-guarded writer.
+//
+// The visible symptom was the editor's own terminal queries coming back
+// as text. A full-screen editor asks the terminal things on startup
+// (OSC 11 for the background colour, then DSR as a sentinel) and reads
+// the answers off stdin within a short window. Routing the query
+// through the pipe delayed it past that window, so the reply —
+// `rgb:2828/2c2c/3434` and friends — arrived after the editor had gone
+// back to treating stdin as keystrokes, and landed in the buffer.
+//
+// Assigning the streams here means ExecProcess leaves them alone.
+func editorExecCmd(path string) *exec.Cmd {
+	c := exec.Command(editorCommand(), path)
+	c.Stdin = os.Stdin
+	c.Stdout = os.Stdout
+	c.Stderr = os.Stderr
+	return c
 }
 
 // applyEditorResult finishes the round-trip: on a clean editor exit
