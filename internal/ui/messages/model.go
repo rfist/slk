@@ -2306,7 +2306,14 @@ func (m *Model) renderMessagePlain(msg MessageItem, width int, avatarStr string,
 		// Background only, no foreground: kitty image placeholders
 		// encode their image ID in the cell foreground (see
 		// image.PlaceholderRune) and must not be repainted.
-		bkBlock = "\n" + ReapplyBgAfterResets(strings.Join(bkLines, "\n"), BgANSI())
+		//
+		// Each line is also PREFIXED with the background, not just
+		// patched after its own resets. The reset that strips the
+		// background is not in these lines at all — it closes the
+		// avatar gutter that placeAvatarBeside prepends to every line
+		// afterwards, so the run at the start of the content has no
+		// preceding reset here to attach a background to.
+		bkBlock = "\n" + WithBackground(bkLines, BgANSI())
 	}
 
 	if len(msg.Attachments) > 0 {
