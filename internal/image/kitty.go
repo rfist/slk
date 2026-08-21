@@ -239,6 +239,18 @@ func (k *KittyRenderer) RenderKey(key string, target image.Point) Render {
 			var pngBuf bytes.Buffer
 			if err := imgpng.Encode(&pngBuf, resized); err == nil {
 				payload = base64.StdEncoding.EncodeToString(pngBuf.Bytes())
+				// Source dims next to encoded dims: an image whose
+				// SOURCE is smaller than the cell box is being upscaled
+				// here, which is the "low resolution" family the user
+				// reported. Logged alongside the byte count so the two
+				// candidate correlations — source size vs payload size
+				// — can be told apart from one run.
+				sb := src.Bounds()
+				debuglog.ImgRender("kitty.encode: key=%s id=%d cells=%dx%d cell_px=%dx%d src=%dx%d encoded=%dx%d upscaled=%v png_bytes=%d b64_bytes=%d",
+					key, id, target.X, target.Y, cw, ch,
+					sb.Dx(), sb.Dy(), pxW, pxH,
+					sb.Dx() < pxW || sb.Dy() < pxH,
+					pngBuf.Len(), len(payload))
 				k.mu.Lock()
 				k.payloads[payloadKey] = payload
 				k.mu.Unlock()
@@ -294,6 +306,7 @@ func (k *KittyRenderer) RenderKey(key string, target image.Point) Render {
 // Reference: https://sw.kovidgoyal.net/kitty/graphics-protocol/#unicode-placeholders
 func emitKittyUpload(w io.Writer, id uint32, payload string, cols, rows int) error {
 	const chunk = 4096
+	chunks := 0
 	for i := 0; i < len(payload); i += chunk {
 		end := i + chunk
 		more := 1
@@ -309,10 +322,28 @@ func emitKittyUpload(w io.Writer, id uint32, payload string, cols, rows int) err
 		}
 		seq := fmt.Sprintf("\x1b_G%s;%s\x1b\\", hdr, payload[i:end])
 		if err := writeKittySequence(w, seq); err != nil {
+			debuglog.ImgRender("kitty.upload: id=%d cells=%dx%d b64_bytes=%d chunk=%d/%d WRITE_FAILED err=%v",
+				id, cols, rows, len(payload), chunks+1, kittyChunkCount(len(payload), chunk), err)
 			return err
 		}
+		chunks++
 	}
+	// The single line that matters for the multiplexer question: how
+	// many bytes and how many APC chunks this image needed. A failure
+	// that correlates with chunks>1 is a passthrough/reassembly bug in
+	// whatever sits between slk and the terminal, not a sizing bug here.
+	debuglog.ImgRender("kitty.upload: id=%d cells=%dx%d b64_bytes=%d chunks=%d multi_chunk=%v",
+		id, cols, rows, len(payload), chunks, chunks > 1)
 	return nil
+}
+
+// kittyChunkCount is the number of APC chunks a payload of n base64
+// bytes is split into at the given chunk size.
+func kittyChunkCount(n, chunk int) int {
+	if n <= 0 || chunk <= 0 {
+		return 0
+	}
+	return (n + chunk - 1) / chunk
 }
 
 func buildPlaceholderLines(id uint32, cells image.Point) []string {
