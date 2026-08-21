@@ -47,8 +47,11 @@ func TestRenderMessagePlainEmitsBlockKitContent(t *testing.T) {
 		},
 	}
 	plain := renderedFor(t, msg, 100)
-	if !strings.Contains(plain, "PR opened") {
-		t.Errorf("missing message body Text: %q", plain)
+	// msg.Text ("PR opened") is Slack's notification fallback for a
+	// blocks message and must NOT be drawn beside the blocks — see
+	// MessageTextSource.
+	if strings.Contains(plain, "PR opened") {
+		t.Errorf("fallback text rendered alongside its blocks: %q", plain)
 	}
 	if !strings.Contains(plain, "Pull Request opened") {
 		t.Errorf("missing header block: %q", plain)
@@ -139,11 +142,14 @@ func TestMessageTextSource_NoBlocksReturnsRawText(t *testing.T) {
 	}
 }
 
-// TestMessageTextSource_NonRichTextBlocksReturnRawText: messages that
-// have block-kit content (header/section/etc.) but no rich_text body
-// continue to use msg.Text for the body. Those block types render
-// separately via the blockkit renderer.
-func TestMessageTextSource_NonRichTextBlocksReturnRawText(t *testing.T) {
+// TestMessageTextSource_ContentBlocksSuppressFallbackText: when a
+// message carries content-bearing blocks, msg.Text is Slack's
+// notification fallback and the blockkit renderer already draws the
+// body. Returning the text too printed the whole message twice.
+//
+// This reverses the earlier contract, which returned msg.Text for any
+// non-rich_text block set.
+func TestMessageTextSource_ContentBlocksSuppressFallbackText(t *testing.T) {
 	msg := MessageItem{
 		Text: "PR opened",
 		Blocks: []blockkit.Block{
@@ -151,8 +157,26 @@ func TestMessageTextSource_NonRichTextBlocksReturnRawText(t *testing.T) {
 			blockkit.SectionBlock{Text: "details"},
 		},
 	}
-	if got := MessageTextSource(msg); got != "PR opened" {
-		t.Errorf("got %q, want %q", got, "PR opened")
+	if got := MessageTextSource(msg); got != "" {
+		t.Errorf("got %q, want \"\" — the blocks are the body", got)
+	}
+}
+
+// A block set with nothing in it must NOT suppress the fallback:
+// rendering blank is worse than rendering the text twice.
+func TestMessageTextSource_EmptyBlocksKeepFallbackText(t *testing.T) {
+	for name, blocks := range map[string][]blockkit.Block{
+		"empty section": {blockkit.SectionBlock{}},
+		"empty header":  {blockkit.HeaderBlock{}},
+		"divider only":  {blockkit.DividerBlock{}},
+		"unknown only":  {blockkit.UnknownBlock{Type: "video"}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			msg := MessageItem{Text: "the only readable content", Blocks: blocks}
+			if got := MessageTextSource(msg); got != "the only readable content" {
+				t.Errorf("got %q, want the fallback text kept", got)
+			}
+		})
 	}
 }
 

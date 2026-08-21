@@ -32,6 +32,60 @@ func Render(blocks []Block, ctx Context, width int) RenderResult {
 	return out
 }
 
+// RendersBody reports whether these blocks carry the message's own
+// content, meaning the host must NOT also render msg.Text.
+//
+// Slack defines `text` as a notification fallback whenever `blocks` is
+// present, so a bot that sends both is sending the same content twice
+// and rendering both prints it twice. See MessageTextSource.
+//
+// Two block kinds deliberately do NOT count:
+//
+//   - RichTextBlock, because the host renders it THROUGH msg.Text —
+//     appendBlock skips it for that reason, so suppressing the text
+//     would leave the message blank.
+//   - UnknownBlock, because all slk can draw for it is an "unsupported"
+//     marker. Slack's rule says the fallback is redundant; here it is
+//     the only readable thing left, so we keep it.
+//
+// DividerBlock alone is likewise not body content — a rule with no text
+// beside it is not what the author wrote.
+//
+// Each case also checks the block actually HAS content. An empty
+// section is still a section, and suppressing the fallback against one
+// would render the message blank — strictly worse than showing it
+// twice.
+//
+// This function must agree with the appendBlock switch below; a new
+// content-bearing case belongs in both.
+func RendersBody(blocks []Block) bool {
+	for _, b := range blocks {
+		switch v := b.(type) {
+		case SectionBlock:
+			if v.Text != "" || len(v.Fields) > 0 || v.Accessory != nil {
+				return true
+			}
+		case HeaderBlock:
+			if v.Text != "" {
+				return true
+			}
+		case ContextBlock:
+			if len(v.Elements) > 0 {
+				return true
+			}
+		case ImageBlock:
+			if v.URL != "" {
+				return true
+			}
+		case ActionsBlock:
+			if len(v.Elements) > 0 {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // appendBlock dispatches one block to its renderer and appends the
 // result onto out. Per-block renderers MUST produce lines that each
 // consume <= width display columns.
