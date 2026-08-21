@@ -14,7 +14,7 @@
 | `Shift+Enter` | Insert | Newline |
 | `Ctrl+V` | Insert | Smart paste — image / file path / text (use `Ctrl+V`, not the terminal's `Ctrl+Shift+V`) |
 | `Ctrl+U` | Insert | Clear compose (text + pending attachments) |
-| `Ctrl+E` | Insert | Edit draft in `$VISUAL`/`$EDITOR` (save+quit returns, non-zero exit cancels) |
+| `Ctrl+G` | Insert | Edit draft in `$VISUAL`/`$EDITOR` (save+quit returns, non-zero exit cancels) |
 | `Ctrl+U` / `Ctrl+D` | Normal | Half-page up / down |
 | `Up` | Insert | Previous line; on the first line, jump to start of message |
 | `Down` | Insert | Next line; on the last line, jump to end of message |

@@ -128,10 +128,12 @@ func handleInsertMode(a *App, msg tea.KeyMsg) tea.Cmd {
 		target.Reset()
 		return nil
 	}
-	// Ctrl+E: hand the draft to $VISUAL/$EDITOR (see editor.go). The
+	// Ctrl+G: hand the draft to $VISUAL/$EDITOR (see editor.go). The
 	// TUI suspends until the editor exits; the round-trip result comes
-	// back as editorFinishedMsg.
-	if code == 'e' && mod == tea.ModCtrl {
+	// back as editorFinishedMsg. Ctrl+G rather than the more obvious
+	// Ctrl+E to match Claude Code's binding for the same gesture, which
+	// is where the muscle memory comes from.
+	if code == 'g' && mod == tea.ModCtrl {
 		return a.beginEditorCompose()
 	}
 	// If a compose-overlay picker (emoji / @mention / #channel)

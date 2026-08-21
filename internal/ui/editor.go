@@ -1,6 +1,6 @@
 // internal/ui/editor.go
 //
-// External-editor compose: Ctrl+E in insert mode suspends the TUI,
+// External-editor compose: Ctrl+G in insert mode suspends the TUI,
 // opens $VISUAL/$EDITOR on a temp file seeded with the current draft,
 // and on a clean exit replaces the draft with the file's contents.
 //

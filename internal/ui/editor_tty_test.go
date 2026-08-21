@@ -1,6 +1,6 @@
 // internal/ui/editor_tty_test.go
 //
-// The Ctrl+E editor must be handed the real terminal. tea.ExecProcess
+// The Ctrl+G editor must be handed the real terminal. tea.ExecProcess
 // fills any nil stream with the Program's own input/output, and slk's
 // output is the sixel FrameOutput wrapper rather than an *os.File — so
 // os/exec would give the child a pipe instead of the tty. See

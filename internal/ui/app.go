@@ -259,7 +259,7 @@ type App struct {
 	buildInfo string
 
 	// editorTempPath is the temp file of an in-flight external-editor
-	// compose round-trip (Ctrl+E). Empty when no editor is open. See
+	// compose round-trip (Ctrl+G). Empty when no editor is open. See
 	// editor.go.
 	editorTempPath string
 
