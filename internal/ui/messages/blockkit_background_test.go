@@ -1,0 +1,113 @@
+// internal/ui/messages/blockkit_background_test.go
+//
+// Block Kit lines must carry the theme background on every run of
+// visible text, not only on the trailing pad.
+//
+// The inline styles (bold, italic, link, mention) deliberately omit
+// .Background() and rely on an outer style supplying it. Body text has
+// styles.MessageText for that; Block Kit lines do not — they are a
+// gutter prefix plus rendered content, and the prefix's closing reset
+// clears the background for the rest of the line. The visible symptom
+// was a selected message whose tint stopped at the glyphs.
+package messages
+
+import (
+	"regexp"
+	"strings"
+	"testing"
+
+	"github.com/gammons/slk/internal/config"
+	"github.com/gammons/slk/internal/ui/messages/blockkit"
+	"github.com/gammons/slk/internal/ui/styles"
+)
+
+var sgrRe = regexp.MustCompile(`\x1b\[[0-9;]*m`)
+
+// runsWithoutBackground reports the visible text runs in s that render
+// with no background set — i.e. text reached after a reset with no
+// background re-established before it.
+func runsWithoutBackground(s string) []string {
+	var bare []string
+	for _, line := range strings.Split(s, "\n") {
+		bgActive := false
+		idx := 0
+		for _, loc := range sgrRe.FindAllStringIndex(line, -1) {
+			if text := line[idx:loc[0]]; strings.TrimSpace(text) != "" && !bgActive {
+				bare = append(bare, text)
+			}
+			seq := line[loc[0]:loc[1]]
+			switch {
+			case seq == "\x1b[m" || seq == "\x1b[0m":
+				bgActive = false
+			case strings.Contains(seq, "48;"):
+				bgActive = true
+			}
+			idx = loc[1]
+		}
+		if tail := line[idx:]; strings.TrimSpace(tail) != "" && !bgActive {
+			bare = append(bare, tail)
+		}
+	}
+	return bare
+}
+
+func blockLinesFor(t *testing.T, blocks []blockkit.Block) string {
+	t.Helper()
+	styles.Apply("nord", config.Theme{})
+	res := blockkit.Render(blocks, blockkit.Context{
+		RenderText: func(s string, un map[string]string) string {
+			return RenderSlackMarkdownWith(s, RenderSlackMarkdownOpts{UserNames: un})
+		},
+		WrapText: WordWrap,
+	}, 60)
+	// Mirror the host: a gutter prefix whose closing reset is what
+	// stripped the background, then the fix under test.
+	gutter := styles.MessageText.Render("     ")
+	var lines []string
+	for _, l := range res.Lines {
+		lines = append(lines, gutter+l)
+	}
+	return ReapplyBgAfterResets(strings.Join(lines, "\n"), BgANSI())
+}
+
+func TestBlockKitLines_EveryTextRunKeepsABackground(t *testing.T) {
+	out := blockLinesFor(t, []blockkit.Block{
+		blockkit.SectionBlock{Text: "*Out Today*\nAlex Rivera, _back in 3 days_"},
+	})
+	if bare := runsWithoutBackground(out); len(bare) > 0 {
+		t.Errorf("these runs render with no background set: %q", bare)
+	}
+}
+
+// The plain run BEFORE a styled span is the one the old code lost: it
+// sat between the gutter's reset and the span's own SGR.
+func TestBlockKitLines_PlainRunBeforeStyledSpan(t *testing.T) {
+	out := blockLinesFor(t, []blockkit.Block{
+		blockkit.SectionBlock{Text: "leading plain text _then italic_"},
+	})
+	for _, run := range runsWithoutBackground(out) {
+		if strings.Contains(run, "leading plain text") {
+			t.Errorf("the run before the styled span lost its background: %q", run)
+		}
+	}
+}
+
+func TestBlockKitLines_HeaderAndContextKeepBackground(t *testing.T) {
+	out := blockLinesFor(t, []blockkit.Block{
+		blockkit.HeaderBlock{Text: "Pull Request opened"},
+		blockkit.ContextBlock{Elements: []blockkit.ContextElement{{Text: "opened by _someone_"}}},
+	})
+	if bare := runsWithoutBackground(out); len(bare) > 0 {
+		t.Errorf("these runs render with no background set: %q", bare)
+	}
+}
+
+// Guard the detector itself: without the fix the bare runs ARE found,
+// so a passing test above means something.
+func TestRunsWithoutBackground_DetectsTheDefect(t *testing.T) {
+	styles.Apply("nord", config.Theme{})
+	broken := styles.MessageText.Render("     ") + "unstyled text\x1b[3mitalic\x1b[m"
+	if bare := runsWithoutBackground(broken); len(bare) == 0 {
+		t.Error("detector found nothing in a deliberately broken line")
+	}
+}
