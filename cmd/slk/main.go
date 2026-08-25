@@ -4538,7 +4538,7 @@ func (h *rtmEventHandler) OnThreadSubscriptionChanged(channelID, threadTS, lastR
 // unread/last-read state), upserts the SQLite cache row, mirrors
 // channelNames/Types maps used by the notifier, and — if the
 // workspace is active — forwards a ConversationOpenedMsg to the UI
-// so the live sidebar updates.
+// so the live sidebar and channel finder (Ctrl+P) both update.
 func (h *rtmEventHandler) OnConversationOpened(ch slack.Channel) {
 	if h.wsCtx == nil {
 		return
@@ -4592,8 +4592,9 @@ func (h *rtmEventHandler) OnConversationOpened(ch slack.Channel) {
 		return
 	}
 	h.program.Send(ui.ConversationOpenedMsg{
-		TeamID: h.workspaceID,
-		Item:   item,
+		TeamID:     h.workspaceID,
+		Item:       item,
+		FinderItem: finderItem,
 	})
 }
 
