@@ -74,6 +74,7 @@ var reduceWorkspace reducerFunc = func(a *App, msg tea.Msg) (tea.Cmd, bool) {
 	case ConversationOpenedMsg:
 		if m.TeamID == a.activeTeamID {
 			a.sidebar.UpsertItem(m.Item)
+			a.channelFinder.Upsert(m.FinderItem)
 		}
 		// Inactive-workspace events update WorkspaceContext.Channels
 		// from the rtmEventHandler in cmd/slk/main.go (Task 6);
