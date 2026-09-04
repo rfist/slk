@@ -39,7 +39,6 @@ type KeyMap struct {
 	Delete              key.Binding
 	CopyMessage         key.Binding
 	CopyPermalink       key.Binding
-	YankText            key.Binding
 	OpenPreview         key.Binding
 	OpenLink            key.Binding
 	DownloadFile        key.Binding
@@ -108,7 +107,6 @@ func DefaultKeyMap() KeyMap {
 		Delete:          key.NewBinding(key.WithKeys("D"), key.WithHelp("D", "delete message")),
 		CopyMessage:     key.NewBinding(key.WithKeys("y"), key.WithHelp("y", "copy message")),
 		CopyPermalink:   key.NewBinding(key.WithKeys("Y", "C"), key.WithHelp("Y/C", "copy permalink")),
-		YankText:        key.NewBinding(key.WithKeys("y"), key.WithHelp("y", "copy message text")),
 		OpenPreview:     key.NewBinding(key.WithKeys("O", "v"), key.WithHelp("O/v", "open image preview")),
 		OpenLink:        key.NewBinding(key.WithKeys("o"), key.WithHelp("o", "open link in message")),
 		DownloadFile:    key.NewBinding(key.WithKeys("d"), key.WithHelp("d", "download file in message")),

@@ -1,0 +1,14 @@
+{
+  "$schema": "https://app.kilo.ai/config.json",
+  "watcher": {
+    "ignore": [
+      ".worktrees/**",
+      ".codegraph/**",
+      ".git/**",
+      "bin/**",
+      "slk",
+      "slk-debug.log",
+      "dist/**"
+    ]
+  }
+}

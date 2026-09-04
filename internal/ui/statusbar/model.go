@@ -398,16 +398,6 @@ type PermalinkCopiedMsg struct{}
 // scheduling a CopiedClearMsg.
 type PermalinkCopyFailedMsg struct{}
 
-// TextCopiedMsg is delivered when a message's text has been copied to
-// the clipboard (the `y` yank binding). App handles it by setting the
-// toast to "Copied message text" and scheduling a CopiedClearMsg.
-type TextCopiedMsg struct{}
-
-// TextCopyFailedMsg is delivered when the message-text copy fails
-// (clipboard unavailable). App handles it by setting the toast to
-// "Failed to copy text" and scheduling a CopiedClearMsg.
-type TextCopyFailedMsg struct{}
-
 // DNDTickMsg is delivered once a minute while DND is active so the
 // status bar can refresh its countdown segment. The App schedules the
 // tick on each StatusChangeMsg and reschedules from the tick handler
