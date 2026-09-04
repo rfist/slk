@@ -10,7 +10,7 @@
 //     (page), gg (top), G (bottom), Tab/h/l (focus next/prev),
 //     Ctrl-o/i (nav back/forward through visited channels)
 //   - layout toggles: s (sidebar), t (thread)
-//   - message ops: Y/C (copy permalink), y (yank text), E (edit),
+//   - message ops: y (copy message), Y/C (copy permalink), E (edit),
 //     D (delete), U (mark unread), m (set mark), ' (jump to mark),
 //     O/v (open image preview)
 //   - reaction nav sub-state: r enters; arrows + Enter select
@@ -284,6 +284,9 @@ func handleNormalMode(a *App, msg tea.KeyMsg) tea.Cmd {
 
 	case key.Matches(msg, a.keys.SaveThread):
 		return a.saveThreadToFile()
+
+	case key.Matches(msg, a.keys.CopyMessage):
+		return a.copyMessageOfSelected()
 
 	case key.Matches(msg, a.keys.CopyPermalink):
 		return a.copyPermalinkOfSelected()

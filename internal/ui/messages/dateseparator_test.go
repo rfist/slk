@@ -14,11 +14,14 @@ import (
 func TestFormatDateSeparatorAcrossTimezones(t *testing.T) {
 	zones := []string{"UTC", "Europe/Kyiv", "Europe/Berlin", "Asia/Tokyo", "America/New_York", "Pacific/Kiritimati"}
 	for _, name := range zones {
-		loc, err := time.LoadLocation(name)
-		if err != nil {
-			t.Skipf("tzdata for %s unavailable: %v", name, err)
-		}
 		t.Run(name, func(t *testing.T) {
+			// Loaded per subtest so a zone missing from the host's tzdata
+			// skips only itself instead of the whole table.
+			loc, err := time.LoadLocation(name)
+			if err != nil {
+				t.Skipf("tzdata for %s unavailable: %v", name, err)
+			}
+
 			orig := time.Local
 			time.Local = loc
 			t.Cleanup(func() { time.Local = orig })
