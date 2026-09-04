@@ -16,9 +16,9 @@ import (
 	"testing"
 )
 
-// decodedPayloadSize renders src at target and returns the pixel
+// decodedPayloadSize renders key at target and returns the pixel
 // dimensions of the PNG the renderer would transmit.
-func decodedPayloadSize(t *testing.T, k *KittyRenderer, key string, src image.Image, target image.Point) (int, int) {
+func decodedPayloadSize(t *testing.T, k *KittyRenderer, key string, target image.Point) (int, int) {
 	t.Helper()
 	k.RenderKey(key, target)
 
@@ -61,7 +61,7 @@ func TestKittyPayload_EncodesAtMeasuredCellSize(t *testing.T) {
 	k.SetSource("k", src)
 
 	target := image.Pt(40, 10)
-	w, h := decodedPayloadSize(t, k, "k", src, target)
+	w, h := decodedPayloadSize(t, k, "k", target)
 
 	if wantW, wantH := 40*14, 10*34; w != wantW || h != wantH {
 		t.Errorf("payload = %dx%d, want %dx%d (target cells x measured cell size)", w, h, wantW, wantH)
@@ -78,7 +78,7 @@ func TestKittyPayload_FallsBackTo8x16(t *testing.T) {
 	k.SetSource("k", src)
 
 	target := image.Pt(40, 10)
-	w, h := decodedPayloadSize(t, k, "k", src, target)
+	w, h := decodedPayloadSize(t, k, "k", target)
 
 	if wantW, wantH := 40*8, 10*16; w != wantW || h != wantH {
 		t.Errorf("payload = %dx%d, want the %dx%d fallback", w, h, wantW, wantH)
@@ -94,13 +94,13 @@ func TestKittyPayload_HiDPIBeatsTheOldHardcode(t *testing.T) {
 	resetCellPixels(t)
 	k1 := NewKittyRenderer(NewRegistry())
 	k1.SetSource("k", src)
-	oldW, oldH := decodedPayloadSize(t, k1, "k", src, target)
+	oldW, oldH := decodedPayloadSize(t, k1, "k", target)
 
 	SetCellPixels(14, 34)
 	t.Cleanup(func() { resetCellPixels(t) })
 	k2 := NewKittyRenderer(NewRegistry())
 	k2.SetSource("k", src)
-	newW, newH := decodedPayloadSize(t, k2, "k", src, target)
+	newW, newH := decodedPayloadSize(t, k2, "k", target)
 
 	if newW <= oldW || newH <= oldH {
 		t.Errorf("hidpi payload %dx%d is not sharper than the old %dx%d", newW, newH, oldW, oldH)

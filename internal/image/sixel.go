@@ -50,12 +50,12 @@ var (
 // keeps the 8x16 default. Call once during startup.
 func SetCellPixels(w, h int) {
 	if w <= 0 || h <= 0 {
-		debuglog.ImgRender("sixel.SetCellPixels: ignoring non-positive cell size %dx%d", w, h)
+		debuglog.ImgRender("image.SetCellPixels: ignoring non-positive cell size %dx%d", w, h)
 		return
 	}
 	cellPxW.Store(int32(w))
 	cellPxH.Store(int32(h))
-	debuglog.ImgRender("sixel.SetCellPixels: cell_w=%d cell_h=%d", w, h)
+	debuglog.ImgRender("image.SetCellPixels: cell_w=%d cell_h=%d", w, h)
 }
 
 // measuredCellPixels returns the cell size to encode against.
