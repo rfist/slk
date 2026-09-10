@@ -941,6 +941,7 @@ func TestMarkChannel_UsesAPIBaseURL(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotPath = r.URL.Path
 		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"ok":true}`))
 	}))
 	defer srv.Close()
 
@@ -963,6 +964,7 @@ func TestMarkThread_UsesAPIBaseURL(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotPath = r.URL.Path
 		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"ok":true}`))
 	}))
 	defer srv.Close()
 
@@ -1462,6 +1464,7 @@ func TestMarkChannelUnread_EmptyTSSendsZero(t *testing.T) {
 		body, _ := io.ReadAll(r.Body)
 		gotBody = string(body)
 		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"ok":true}`))
 	}))
 	defer srv.Close()
 
@@ -3171,5 +3174,157 @@ func TestPostForm_BodyFieldOrderIsAlphabeticalThenEnvelope(t *testing.T) {
 			"If the lead is no longer alphabetical, postForm stopped using url.Values.Encode(): "+
 			"that is an improvement only if slack-go's bodies were fixed too, otherwise slk now "+
 			"emits two different body shapes. Update the residual-divergence table either way.", raw, want)
+	}
+}
+
+// client.counts is the only source of authoritative mention counts.
+// mention_count is believed to mean "@-mentions" for channels and "every
+// unread message" for ims and mpims — Slack's server encoding the DM
+// special case for us is what lets slk consume one field uniformly. That
+// reading is unverified against a live capture (see UnreadInfo's doc);
+// this test pins only the parsing, which is uniform across all three
+// blocks and does not depend on which reading is correct.
+func TestGetUnreadCounts_ParsesMentionCounts(t *testing.T) {
+	const body = `{
+	  "ok": true,
+	  "channels": [
+	    {"id":"C1","has_unreads":true,"mention_count":2,"unread_count_display":9,"last_read":"1.0"},
+	    {"id":"C2","has_unreads":true,"mention_count":0,"last_read":"2.0"},
+	    {"id":"C3","has_unreads":false,"mention_count":0,"last_read":"3.0"}
+	  ],
+	  "mpims": [{"id":"G1","has_unreads":true,"mention_count":4,"last_read":"4.0"}],
+	  "ims": [{"id":"D1","has_unreads":true,"mention_count":6,"last_read":"5.0"}],
+	  "threads": {"has_unreads":false,"unread_count":0,"mention_count":0}
+	}`
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(body))
+	}))
+	defer srv.Close()
+	c := newTestClient(srv)
+
+	unreads, _, err := c.GetUnreadCounts()
+	if err != nil {
+		t.Fatalf("GetUnreadCounts: %v", err)
+	}
+
+	got := map[string]int{}
+	for _, u := range unreads {
+		got[u.ChannelID] = u.MentionCount
+	}
+	want := map[string]int{
+		"C1": 2,
+		// An unread channel with no mentions must report 0, not a
+		// floor of 1. The old code fabricated a 1 here, which would
+		// have painted a "1" badge on every unread channel.
+		"C2": 0,
+		"C3": 0,
+		"G1": 4,
+		"D1": 6,
+	}
+	for id, wantCount := range want {
+		if got[id] != wantCount {
+			t.Errorf("%s MentionCount = %d, want %d", id, got[id], wantCount)
+		}
+	}
+}
+
+func TestMarkChannel_NotOK_ReturnsError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"ok":false,"error":"invalid_auth"}`))
+	}))
+	defer srv.Close()
+
+	err := newTestClient(srv).MarkChannel(context.Background(), "C123", "1700000000.000100")
+	if err == nil {
+		t.Fatal("MarkChannel: want error for ok:false, got nil")
+	}
+	if !strings.Contains(err.Error(), "invalid_auth") {
+		t.Errorf("error should name the Slack error code, got %q", err)
+	}
+}
+
+func TestMarkChannel_HTTP500_ReturnsError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte(`<html>nope</html>`))
+	}))
+	defer srv.Close()
+
+	if err := newTestClient(srv).MarkChannel(context.Background(), "C123", "1700000000.000100"); err == nil {
+		t.Fatal("MarkChannel: want error for HTTP 500, got nil")
+	}
+}
+
+func TestMarkThread_NotOK_ReturnsError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"ok":false,"error":"thread_not_found"}`))
+	}))
+	defer srv.Close()
+
+	err := newTestClient(srv).MarkThread(context.Background(), "C1", "P1", "R5")
+	if err == nil {
+		t.Fatal("MarkThread: want error for ok:false, got nil")
+	}
+	if !strings.Contains(err.Error(), "thread_not_found") {
+		t.Errorf("error should name the Slack error code, got %q", err)
+	}
+}
+
+func TestMarkThreadUnread_NotOK_ReturnsError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"ok":false,"error":"thread_not_found"}`))
+	}))
+	defer srv.Close()
+
+	if err := newTestClient(srv).MarkThreadUnread(context.Background(), "C1", "P1", "R5"); err == nil {
+		t.Fatal("MarkThreadUnread: want error for ok:false, got nil")
+	}
+}
+
+// The mark helpers must reject a 200 with an empty body. Slack always
+// returns a JSON envelope, so an empty 200 is a proxy/edge failure, not a
+// successful mark. Treating it as success would silently drop read state —
+// the failure mode issue #159 exists to eliminate. Pinned explicitly
+// because every other mark stub in this file now returns {"ok":true}, so
+// nothing else would catch a regression here.
+func TestMarkChannel_EmptyBody_ReturnsError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	if err := newTestClient(srv).MarkChannel(context.Background(), "C123", "1700000000.000100"); err == nil {
+		t.Fatal("MarkChannel: want error for empty 200 body, got nil")
+	}
+}
+
+// Same constraint on the thread path: parseOKResponse is shared, but
+// markChannel and markThread call it independently.
+func TestMarkThread_EmptyBody_ReturnsError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	if err := newTestClient(srv).MarkThread(context.Background(), "C1", "P1", "R5"); err == nil {
+		t.Fatal("MarkThread: want error for empty 200 body, got nil")
+	}
+}
+
+// A 200 carrying an HTML error page (captive portal, gateway, edge node)
+// is not a successful mark either.
+func TestMarkChannel_NonJSONBody_ReturnsError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`<html>gateway</html>`))
+	}))
+	defer srv.Close()
+
+	if err := newTestClient(srv).MarkChannel(context.Background(), "C123", "1700000000.000100"); err == nil {
+		t.Fatal("MarkChannel: want error for non-JSON 200 body, got nil")
 	}
 }

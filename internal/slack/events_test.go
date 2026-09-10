@@ -60,14 +60,15 @@ type memberEventRecord struct {
 }
 
 type channelMarkRecord struct {
-	channelID   string
-	ts          string
-	unreadCount int
+	channelID    string
+	ts           string
+	unreadCount  int
+	mentionCount int
 }
 
 type threadMarkRecord struct {
-	channelID, threadTS, ts string
-	read                    bool
+	channelID, threadTS, lastRead string
+	subscribed                    bool
 }
 
 type threadSubChangeRecord struct {
@@ -109,12 +110,12 @@ func (m *mockEventHandler) OnDNDChange(enabled bool, endUnix int64) {
 	m.dndChanges = append(m.dndChanges, dndChangeRecord{enabled, endUnix})
 }
 
-func (m *mockEventHandler) OnChannelMarked(channelID, ts string, unreadCount int) {
-	m.channelMarks = append(m.channelMarks, channelMarkRecord{channelID, ts, unreadCount})
+func (m *mockEventHandler) OnChannelMarked(channelID, ts string, unreadCount, mentionCount int) {
+	m.channelMarks = append(m.channelMarks, channelMarkRecord{channelID, ts, unreadCount, mentionCount})
 }
 
-func (m *mockEventHandler) OnThreadMarked(channelID, threadTS, ts string, read bool) {
-	m.threadMarks = append(m.threadMarks, threadMarkRecord{channelID, threadTS, ts, read})
+func (m *mockEventHandler) OnThreadMarked(channelID, threadTS, lastRead string, subscribed Subscribed) {
+	m.threadMarks = append(m.threadMarks, threadMarkRecord{channelID, threadTS, lastRead, bool(subscribed)})
 }
 
 func (m *mockEventHandler) OnThreadSubscriptionChanged(channelID, threadTS, lastRead string, active bool) {
@@ -502,7 +503,7 @@ func TestDispatch_ChannelMarked_MalformedJSON_NoCall(t *testing.T) {
 	}
 }
 
-func TestDispatch_ThreadMarked_Unread_CallsHandler(t *testing.T) {
+func TestDispatch_ThreadMarked_PassesCursorThrough(t *testing.T) {
 	handler := &mockEventHandler{}
 	data := []byte(`{"type":"thread_marked","subscription":{"channel":"C1","thread_ts":"1700000000.000100","last_read":"1700000000.000200","active":true}}`)
 	dispatchWebSocketEvent(data, handler)
@@ -511,15 +512,20 @@ func TestDispatch_ThreadMarked_Unread_CallsHandler(t *testing.T) {
 		t.Fatalf("expected 1 threadMark, got %d", len(handler.threadMarks))
 	}
 	got := handler.threadMarks[0]
-	if got.channelID != "C1" || got.threadTS != "1700000000.000100" || got.ts != "1700000000.000200" {
+	if got.channelID != "C1" || got.threadTS != "1700000000.000100" || got.lastRead != "1700000000.000200" {
 		t.Errorf("unexpected: %+v", got)
 	}
-	if got.read {
-		t.Error("expected read=false (active=true means unread)")
+	if !got.subscribed {
+		t.Errorf("subscribed = false, want true for active:true")
 	}
 }
 
-func TestDispatch_ThreadMarked_Read_CallsHandler(t *testing.T) {
+// `active` means "subscribed", never "read". The dispatcher forwards it
+// as `subscribed` so the handler can decide whether inserting a
+// subscription row is legitimate; the cursor it forwards must be the
+// one the event carried either way, so that no downstream read/unread
+// decision can be derived from the flag.
+func TestDispatch_ThreadMarked_InactiveSubscriptionStillPassesCursor(t *testing.T) {
 	handler := &mockEventHandler{}
 	data := []byte(`{"type":"thread_marked","subscription":{"channel":"C1","thread_ts":"P1","last_read":"R5","active":false}}`)
 	dispatchWebSocketEvent(data, handler)
@@ -527,8 +533,11 @@ func TestDispatch_ThreadMarked_Read_CallsHandler(t *testing.T) {
 	if len(handler.threadMarks) != 1 {
 		t.Fatalf("expected 1 threadMark, got %d", len(handler.threadMarks))
 	}
-	if !handler.threadMarks[0].read {
-		t.Error("expected read=true (active=false means read)")
+	if handler.threadMarks[0].lastRead != "R5" {
+		t.Errorf("lastRead = %q, want R5", handler.threadMarks[0].lastRead)
+	}
+	if handler.threadMarks[0].subscribed {
+		t.Errorf("subscribed = true, want false for active:false")
 	}
 }
 
@@ -700,5 +709,41 @@ func TestDispatchMemberLeftChannel(t *testing.T) {
 	rec := handler.memberLeft[0]
 	if rec.channelID != "C1" || rec.userID != "U_GONE" {
 		t.Errorf("got %+v, want {C1 U_GONE}", rec)
+	}
+}
+
+// *_marked payloads carry mention_count alongside unread_count_display.
+// It is the live correction channel for the sidebar mention badge: reading
+// a channel elsewhere zeroes it, a remote mark-unread restores it.
+func TestDispatch_ChannelMarked_CarriesMentionCount(t *testing.T) {
+	handler := &mockEventHandler{}
+	data := []byte(`{"type":"channel_marked","channel":"C123","ts":"1700000000.000100","unread_count_display":9,"mention_count":4}`)
+	dispatchWebSocketEvent(data, handler)
+
+	if len(handler.channelMarks) != 1 {
+		t.Fatalf("expected 1 channelMark, got %d", len(handler.channelMarks))
+	}
+	got := handler.channelMarks[0]
+	if got.mentionCount != 4 {
+		t.Errorf("mentionCount = %d, want 4", got.mentionCount)
+	}
+	if got.unreadCount != 9 {
+		t.Errorf("unreadCount = %d, want 9", got.unreadCount)
+	}
+}
+
+// A payload without mention_count must decode to 0 rather than fail, so an
+// older or narrower Slack response degrades to "no badge" instead of
+// dropping the event.
+func TestDispatch_ChannelMarked_AbsentMentionCountIsZero(t *testing.T) {
+	handler := &mockEventHandler{}
+	data := []byte(`{"type":"channel_marked","channel":"C123","ts":"1.0","unread_count_display":2}`)
+	dispatchWebSocketEvent(data, handler)
+
+	if len(handler.channelMarks) != 1 {
+		t.Fatalf("expected 1 channelMark, got %d", len(handler.channelMarks))
+	}
+	if got := handler.channelMarks[0].mentionCount; got != 0 {
+		t.Errorf("mentionCount = %d, want 0", got)
 	}
 }

@@ -931,9 +931,23 @@ func (c *Client) UploadFile(
 // UnreadInfo holds the unread state for a single channel.
 type UnreadInfo struct {
 	ChannelID string
-	Count     int
-	HasUnread bool
-	LastRead  string // Slack message timestamp
+	// MentionCount is Slack's per-conversation mention count. For
+	// channels it counts @-mentions; for ims and mpims Slack reports
+	// every unread message, which is exactly the DM badge semantics the
+	// official client shows. Zero is meaningful: an unread channel with
+	// no mentions reports 0 and must render a dot, not a "1".
+	//
+	// That ims/mpims reading is the branch's load-bearing hypothesis and
+	// it is UNVERIFIED: no capture in this repo proves what those two
+	// blocks carry. If it is wrong, an im or mpim with unread messages
+	// but no @-mention reports 0 here, which undercounts the badge and
+	// self-corrects at the next refresh; it cannot overcount. Every
+	// restatement of these semantics — comments, doc comments, tests —
+	// must carry the same caveat. See §Semantics in
+	// docs/superpowers/specs/2026-09-09-mention-badges-design.md.
+	MentionCount int
+	HasUnread    bool
+	LastRead     string // Slack message timestamp
 }
 
 // ThreadsAggregate captures Slack's server-side notion of whether the
@@ -992,9 +1006,10 @@ func (c *Client) GetUnreadCounts() ([]UnreadInfo, ThreadsAggregate, error) {
 			LastRead     string `json:"last_read"`
 		} `json:"mpims"`
 		Ims []struct {
-			ID         string `json:"id"`
-			HasUnreads bool   `json:"has_unreads"`
-			LastRead   string `json:"last_read"`
+			ID           string `json:"id"`
+			HasUnreads   bool   `json:"has_unreads"`
+			MentionCount int    `json:"mention_count"`
+			LastRead     string `json:"last_read"`
 		} `json:"ims"`
 		// Threads is the workspace-wide thread-subscription rollup.
 		// Slack returns this top-level when the user has subscribed
@@ -1017,41 +1032,34 @@ func (c *Client) GetUnreadCounts() ([]UnreadInfo, ThreadsAggregate, error) {
 	}
 
 	var unreads []UnreadInfo
+	// All three conversation kinds carry mention_count and are handled
+	// identically. The previous code floored the value to 1 whenever a
+	// conversation had unreads but no mentions, and hardcoded 1 for
+	// every im — a fabrication that was invisible only because nothing
+	// read the field.
 	for _, ch := range result.Channels {
-		info := UnreadInfo{
-			ChannelID: ch.ID,
-			LastRead:  ch.LastRead,
-			HasUnread: ch.HasUnreads,
-		}
-		if ch.HasUnreads {
-			info.Count = ch.MentionCount
-			if info.Count == 0 {
-				info.Count = 1 // has unreads but no mention count
-			}
-		}
-		unreads = append(unreads, info)
+		unreads = append(unreads, UnreadInfo{
+			ChannelID:    ch.ID,
+			MentionCount: ch.MentionCount,
+			HasUnread:    ch.HasUnreads,
+			LastRead:     ch.LastRead,
+		})
 	}
 	for _, ch := range result.Mpims {
-		info := UnreadInfo{
-			ChannelID: ch.ID,
-			LastRead:  ch.LastRead,
-			HasUnread: ch.HasUnreads,
-		}
-		if ch.HasUnreads {
-			info.Count = max(ch.MentionCount, 1)
-		}
-		unreads = append(unreads, info)
+		unreads = append(unreads, UnreadInfo{
+			ChannelID:    ch.ID,
+			MentionCount: ch.MentionCount,
+			HasUnread:    ch.HasUnreads,
+			LastRead:     ch.LastRead,
+		})
 	}
 	for _, ch := range result.Ims {
-		info := UnreadInfo{
-			ChannelID: ch.ID,
-			LastRead:  ch.LastRead,
-			HasUnread: ch.HasUnreads,
-		}
-		if ch.HasUnreads {
-			info.Count = 1
-		}
-		unreads = append(unreads, info)
+		unreads = append(unreads, UnreadInfo{
+			ChannelID:    ch.ID,
+			MentionCount: ch.MentionCount,
+			HasUnread:    ch.HasUnreads,
+			LastRead:     ch.LastRead,
+		})
 	}
 
 	threads := ThreadsAggregate{
@@ -1212,37 +1220,43 @@ func (c *Client) GetPermalink(ctx context.Context, channelID, ts string) (string
 	return url, nil
 }
 
-// markChannel posts to conversations.mark with the given form values.
-// Used by both MarkChannel (read up to ts) and MarkChannelUnread (roll the
-// watermark backward to ts). Uses c.httpClient for the request so tests
-// can substitute an httptest.NewServer; production wiring (NewClient) sets
-// httpClient to a cookie-bearing client.
-func (c *Client) markChannel(ctx context.Context, channelID, ts string) error {
-	data := url.Values{
-		"token":   {c.token},
-		"channel": {channelID},
-		"ts":      {ts},
+// parseOKResponse checks a Slack Web API response envelope. Slack
+// answers HTTP 200 even for failures, so the {"ok":false,"error":...}
+// body is the only signal that a call was rejected.
+func parseOKResponse(method string, raw []byte) error {
+	var resp struct {
+		OK    bool   `json:"ok"`
+		Error string `json:"error"`
 	}
-
-	req, err := http.NewRequestWithContext(ctx, "POST", c.apiBaseURL+"conversations.mark",
-		strings.NewReader(data.Encode()))
-	if err != nil {
-		return fmt.Errorf("creating mark request: %w", err)
+	if err := json.Unmarshal(raw, &resp); err != nil {
+		return fmt.Errorf("parsing %s: %w (body=%s)", method, err, truncateForLog(raw))
 	}
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return fmt.Errorf("marking channel: %w", err)
+	if !resp.OK {
+		return fmt.Errorf("%s: %s (body=%s)", method, resp.Error, truncateForLog(raw))
 	}
-	defer resp.Body.Close()
 	return nil
 }
 
-// markThread posts to subscriptions.thread.mark with the given args.
-// Used by both MarkThread (read=true => "1") and MarkThreadUnread
-// (read=false => "0"). channelID/threadTS empty is a no-op. ts defaults
-// to threadTS when empty (parent has no replies yet).
+// markChannel posts to conversations.mark. Used by both MarkChannel
+// (read up to ts) and MarkChannelUnread (roll the watermark backward to
+// ts). Routed through postForm so HTTP status, 429, and the Slack
+// {"ok":false} envelope are all surfaced as errors — read state must
+// never be persisted locally for a mark Slack rejected.
+func (c *Client) markChannel(ctx context.Context, channelID, ts string) error {
+	raw, err := c.postForm(ctx, "conversations.mark", url.Values{
+		"channel": {channelID},
+		"ts":      {ts},
+	})
+	if err != nil {
+		return err
+	}
+	return parseOKResponse("conversations.mark", raw)
+}
+
+// markThread posts to subscriptions.thread.mark. Used by both MarkThread
+// (read=true => "1") and MarkThreadUnread (read=false => "0").
+// channelID/threadTS empty is a no-op. ts defaults to threadTS when empty
+// (parent has no replies yet). Error handling mirrors markChannel.
 func (c *Client) markThread(ctx context.Context, channelID, threadTS, ts string, read bool) error {
 	if channelID == "" || threadTS == "" {
 		return nil
@@ -1254,27 +1268,16 @@ func (c *Client) markThread(ctx context.Context, channelID, threadTS, ts string,
 	if read {
 		readVal = "1"
 	}
-	data := url.Values{
-		"token":     {c.token},
+	raw, err := c.postForm(ctx, "subscriptions.thread.mark", url.Values{
 		"channel":   {channelID},
 		"thread_ts": {threadTS},
 		"ts":        {ts},
 		"read":      {readVal},
-	}
-
-	req, err := http.NewRequestWithContext(ctx, "POST", c.apiBaseURL+"subscriptions.thread.mark",
-		strings.NewReader(data.Encode()))
+	})
 	if err != nil {
-		return fmt.Errorf("creating thread mark request: %w", err)
+		return err
 	}
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return fmt.Errorf("marking thread: %w", err)
-	}
-	defer resp.Body.Close()
-	return nil
+	return parseOKResponse("subscriptions.thread.mark", raw)
 }
 
 // MarkChannel marks a channel as read up to the given timestamp.
