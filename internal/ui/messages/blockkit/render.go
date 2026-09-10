@@ -37,7 +37,7 @@ func Render(blocks []Block, ctx Context, width int) RenderResult {
 //
 // Slack defines `text` as a notification fallback whenever `blocks` is
 // present, so a bot that sends both is sending the same content twice
-// and rendering both prints it twice. See MessageTextSource.
+// and rendering both prints it twice. See messages.BlocksCarryBody.
 //
 // Two block kinds deliberately do NOT count:
 //
