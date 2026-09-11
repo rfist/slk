@@ -609,3 +609,68 @@ func TestResolveDMNames(t *testing.T) {
 		t.Errorf("the sweep made %d edge calls; want 1 for any number of DMs", n)
 	}
 }
+
+func TestUserResolver_FirstSightPerUserDeliversPeerStatus(t *testing.T) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"ok":true,"user":{"id":"U1","name":"alice","team_id":"T1","profile":{"display_name":"Alice","status_emoji":":calendar:","status_text":"In a meeting","status_expiration":1700003600,"huddle_state":"in_a_huddle","huddle_state_expiration_ts":1700000900}}}`))
+	}))
+	defer srv.Close()
+
+	db := newTestDB(t)
+	watch := newResolvedWatch(1, nil)
+	r := newUserResolver("T1", newTestClient(t, srv), db, nil, watch.send, nil, nil)
+	r.Request("U1")
+	<-watch.done
+
+	u, err := db.GetUser("U1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if u.StatusEmoji != ":calendar:" || u.StatusText != "In a meeting" || u.StatusExpiration != 1700003600 ||
+		u.HuddleState != "in_a_huddle" || u.HuddleExpiration != 1700000900 {
+		t.Fatalf("cached first-sight status = %+v", u)
+	}
+	for _, raw := range watch.messages() {
+		if msg, ok := raw.(ui.UserStatusChangeMsg); ok && msg.UserID == "U1" {
+			if msg.TeamID != "T1" || msg.Emoji != ":calendar:" || msg.Huddle != "in_a_huddle" {
+				t.Fatalf("first-sight status message = %+v", msg)
+			}
+			return
+		}
+	}
+	t.Fatal("first-sight users.info resolution emitted no peer status")
+}
+
+func TestUserResolver_FirstSightEdgeDeliversPeerStatus(t *testing.T) {
+	u := edgeUserRecord("U1", "alice", "Alice", "", "T1", 7, false)
+	u.Profile.StatusEmoji = ":palm_tree:"
+	u.Profile.StatusText = "Vacation"
+	u.Profile.StatusExpiration = 1700003600
+	u.Profile.HuddleState = "in_a_huddle"
+	u.Profile.HuddleStateExpirationTS = 1700000900
+
+	db := newTestDB(t)
+	watch := newResolvedWatch(1, nil)
+	r := newUserResolver("T1", nil, db, nil, watch.send, &fakeBatcher{res: []edge.User{u}}, nil)
+	if got := r.ResolveNow([]string{"U1"}); len(got) != 1 {
+		t.Fatalf("ResolveNow returned %d users; want 1", len(got))
+	}
+
+	cached, err := db.GetUser("U1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cached.StatusEmoji != ":palm_tree:" || cached.HuddleState != "in_a_huddle" {
+		t.Fatalf("cached edge first-sight status = %+v", cached)
+	}
+	for _, raw := range watch.messages() {
+		if msg, ok := raw.(ui.UserStatusChangeMsg); ok && msg.UserID == "U1" {
+			if msg.TeamID != "T1" || msg.Emoji != ":palm_tree:" || msg.Huddle != "in_a_huddle" {
+				t.Fatalf("edge first-sight status message = %+v", msg)
+			}
+			return
+		}
+	}
+	t.Fatal("first-sight edge resolution emitted no peer status")
+}

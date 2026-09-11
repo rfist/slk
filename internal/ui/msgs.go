@@ -21,6 +21,7 @@ import (
 	emojiutil "github.com/gammons/slk/internal/emoji"
 	"github.com/gammons/slk/internal/ui/channelfinder"
 	"github.com/gammons/slk/internal/ui/messages"
+	"github.com/gammons/slk/internal/ui/peerstatus"
 	"github.com/gammons/slk/internal/ui/searchresults"
 	"github.com/gammons/slk/internal/ui/sidebar"
 )
@@ -266,6 +267,9 @@ type (
 		Channels     []sidebar.ChannelItem
 		FinderItems  []channelfinder.Item
 		UserNames    map[string]string
+		// UserStatuses is every cached user's custom status, plus DM
+		// peers' DND fetched at switch time, for author names and DM rows.
+		UserStatuses map[string]peerstatus.Status
 		// ExternalUsers maps userID -> true for users this workspace
 		// considers Slack Connect / shared-channel guests. Hydrated from
 		// cache.User.IsExternal so the mention picker can flag externals
@@ -331,6 +335,9 @@ type (
 		Channels     []sidebar.ChannelItem
 		FinderItems  []channelfinder.Item
 		UserNames    map[string]string
+		// UserStatuses is every cached user's custom status, for author
+		// names. DM peers' DND arrives separately after connect.
+		UserStatuses map[string]peerstatus.Status
 		// ExternalUsers maps userID -> true for users this workspace
 		// considers Slack Connect / shared-channel guests. Hydrated from
 		// cache.User.IsExternal so the mention picker can flag externals
@@ -408,6 +415,29 @@ type (
 	PresenceChangeMsg struct {
 		UserID   string
 		Presence string
+	}
+	// UserStatusChangeMsg carries a user's custom status for one
+	// workspace. Expires is the zero time for a status that never
+	// expires; renderers hide a status whose Expires has passed.
+	UserStatusChangeMsg struct {
+		TeamID  string
+		UserID  string
+		Emoji   string
+		Text    string
+		Expires time.Time
+		// Huddle is Slack's huddle_state; HuddleExpires its expiry, zero
+		// when unset. See peerstatus.Status.InHuddle.
+		Huddle        string
+		HuddleExpires time.Time
+	}
+	// UserDNDChangeMsg carries another user's DND state for one
+	// workspace. EndTS is the zero time when DND is off or its end is
+	// unknown.
+	UserDNDChangeMsg struct {
+		TeamID  string
+		UserID  string
+		Enabled bool
+		EndTS   time.Time
 	}
 	// StatusChangeMsg is sent when the authenticated user's own presence
 	// or DND state changes for any workspace. The App routes it to the
