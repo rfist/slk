@@ -17,6 +17,10 @@
 //     file path / verbatim text).
 //   - Ctrl+U                     -> clear compose (text +
 //     attachments + uploading flag).
+//   - Ctrl+O (thread compose)    -> toggle "also send to channel" for
+//     the next thread reply.
+//   - Ctrl+E                     -> edit the draft in $VISUAL/$EDITOR
+//     (suspends the TUI; see editor.go).
 //   - Up / Down on first/last line -> jump to start/end of textarea.
 //   - Plain Enter                -> send (or commit edit, or upload-
 //     then-send if attachments present).
@@ -110,10 +114,18 @@ func handleInsertMode(a *App, msg tea.KeyMsg) tea.Cmd {
 	}
 
 	code := msg.Key().Code
-	mod := msg.Key().Mod
+	// Lock-state bits (NumLock/CapsLock) ride along in Mod on terminals
+	// implementing the Kitty Keyboard Protocol, regardless of whether
+	// they're relevant to the binding — strip them before comparing.
+	mod := msg.Key().Mod &^ (tea.ModCapsLock | tea.ModNumLock | tea.ModScrollLock)
 	isPaste := code == 'v' && mod == tea.ModCtrl
 	if isPaste {
 		return a.smartPaste()
+	}
+	// Ctrl+G is a fork alias for upstream's Ctrl+E, matching Claude
+	// Code's binding for the same gesture.
+	if (code == 'e' || code == 'g') && mod == tea.ModCtrl {
+		return a.openComposeInEditor()
 	}
 
 	// Insert-mode shortcuts that operate on the active compose:
@@ -128,20 +140,20 @@ func handleInsertMode(a *App, msg tea.KeyMsg) tea.Cmd {
 		target.Reset()
 		return nil
 	}
-	// Ctrl+G: hand the draft to $VISUAL/$EDITOR (see editor.go). The
-	// TUI suspends until the editor exits; the round-trip result comes
-	// back as editorFinishedMsg. Ctrl+G rather than the more obvious
-	// Ctrl+E to match Claude Code's binding for the same gesture, which
-	// is where the muscle memory comes from.
-	if code == 'g' && mod == tea.ModCtrl {
-		return a.beginEditorCompose()
-	}
 	// If a compose-overlay picker (emoji / @mention / #channel)
 	// is active, let it own Up/Down so users can navigate the
 	// suggestion list. Without this guard, the jump-to-start/end
 	// shortcuts below swallow the arrow keys before the picker
 	// ever sees them.
 	pickerActive := target.IsEmojiActive() || target.IsMentionActive() || target.IsChannelActive()
+	// Ctrl+O toggles Slack's "Also send to #channel" for the next
+	// thread reply. Thread compose only -- the channel compose has no
+	// broadcast concept. Skipped while a picker is active so picker
+	// navigation keys keep precedence.
+	if target == &a.threadCompose && !pickerActive && code == 'o' && mod == tea.ModCtrl {
+		a.threadCompose.ToggleBroadcast()
+		return nil
+	}
 	if !pickerActive {
 		if code == tea.KeyUp && mod == 0 && target.CursorAtFirstLine() {
 			target.MoveCursorToStart()
@@ -154,7 +166,9 @@ func handleInsertMode(a *App, msg tea.KeyMsg) tea.Cmd {
 	}
 	// Plain Enter sends; Shift+Enter (and Ctrl+J as a fallback
 	// for terminals that don't disambiguate modifiers) inserts a
-	// newline.
+	// newline. Alt+Enter sends with broadcast in thread compose
+	// (one-shot send-with-broadcast without needing the Ctrl+O toggle).
+	isAltEnter := code == tea.KeyEnter && mod.Contains(tea.ModAlt)
 	isSend := code == tea.KeyEnter && !mod.Contains(tea.ModShift)
 	isNewline := (code == tea.KeyEnter && mod.Contains(tea.ModShift)) ||
 		(code == 'j' && mod == tea.ModCtrl)
@@ -189,6 +203,7 @@ func handleInsertMode(a *App, msg tea.KeyMsg) tea.Cmd {
 			text := a.threadCompose.Value()
 			if text != "" {
 				text = a.threadCompose.TranslateMentionsForSend(text)
+				broadcast := a.threadCompose.Broadcast() || isAltEnter
 				a.threadCompose.Reset()
 				threadTS := a.threadPanel.ThreadTS()
 				channelID := a.threadPanel.ChannelID()
@@ -198,6 +213,7 @@ func handleInsertMode(a *App, msg tea.KeyMsg) tea.Cmd {
 						ChannelID: channelID,
 						ThreadTS:  threadTS,
 						Text:      text,
+						Broadcast: broadcast,
 					}
 				}
 			}

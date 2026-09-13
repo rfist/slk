@@ -68,6 +68,8 @@ type KeyMap struct {
 	WinCycle            key.Binding
 	WinClose            key.Binding
 	WinOnly             key.Binding
+	ToggleBroadcast     key.Binding
+	OpenInEditor        key.Binding
 }
 
 func DefaultKeyMap() KeyMap {
@@ -149,5 +151,11 @@ func DefaultKeyMap() KeyMap {
 		WinCycle:     key.NewBinding(key.WithHelp("ctrl+w w", "cycle windows")),
 		WinClose:     key.NewBinding(key.WithHelp("ctrl+w q / :q", "close window")),
 		WinOnly:      key.NewBinding(key.WithHelp("ctrl+w o / :only", "close other windows")),
+		// Insert mode, thread compose only: toggles Slack's
+		// "Also send to #channel" checkbox for the next reply.
+		// Alt+Enter sends and broadcasts in a single keystroke.
+		ToggleBroadcast: key.NewBinding(key.WithKeys("ctrl+o"), key.WithHelp("ctrl+o / alt+enter", "also send reply to channel")),
+		// Shadows the textarea's own ctrl+e (LineEnd); "End" still works.
+		OpenInEditor: key.NewBinding(key.WithKeys("ctrl+e"), key.WithHelp("ctrl+e", "edit message in $EDITOR")),
 	}
 }

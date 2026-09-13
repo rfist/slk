@@ -124,12 +124,14 @@ func TestWithBackground_PrefixesAndPatches(t *testing.T) {
 	styles.Apply("nord", config.Theme{})
 	bg := BgANSI()
 
-	got := WithBackground([]string{"plain\x1b[mtail"}, bg)
+	got := WithBackground([]string{"plain\x1b[mmiddle\x1b[0mtail"}, bg)
 	if !strings.HasPrefix(got, bg) {
 		t.Errorf("line not prefixed with the background: %q", got)
 	}
-	if !strings.Contains(got, "\x1b[m"+bg) {
-		t.Errorf("background not re-applied after the reset: %q", got)
+	for _, reset := range []string{"\x1b[m", "\x1b[0m"} {
+		if !strings.Contains(got, reset+bg) {
+			t.Errorf("background not re-applied after %q: %q", reset, got)
+		}
 	}
 }
 
@@ -137,5 +139,56 @@ func TestWithBackground_EmptyBackgroundIsPassthrough(t *testing.T) {
 	got := WithBackground([]string{"a", "b"}, "")
 	if got != "a\nb" {
 		t.Errorf("got %q, want the lines joined untouched", got)
+	}
+}
+
+// The tests above build their input by calling WithBackground directly,
+// so they pin the helper's behaviour and the detector's. None of them
+// fails if renderMessagePlain stops calling it — which is the whole
+// defect, not a detail of it. This one goes through buildCache, so the
+// wiring is what is under test.
+func TestBuildCache_BlockKitRunsKeepBackground(t *testing.T) {
+	styles.Apply("nord", config.Theme{})
+	msg := MessageItem{
+		TS:        "1700000000.000000",
+		UserName:  "github",
+		UserID:    "U-BOT",
+		Text:      "PR opened",
+		Timestamp: "1:23 PM",
+		Blocks: []blockkit.Block{
+			// The plain run before a styled span is the one the old
+			// code lost: it sits between the gutter's closing reset
+			// and the span's own SGR.
+			blockkit.SectionBlock{Text: "leading plain text _then italic_"},
+		},
+	}
+	m := New([]MessageItem{msg}, "general")
+	// The defect needs the avatar gutter. placeAvatarBeside prepends it
+	// to every line AFTER the Block Kit lines are composed, and it is
+	// the gutter's closing reset that clears the background for the
+	// rest of the line — with no avatar there is no such reset and the
+	// bug cannot appear. Only the avatar's content is stood in for
+	// here; the composition order is the renderer's own.
+	m.SetAvatarFunc(func(string) string { return styles.MessageText.Render("  ") })
+	m.buildCache(100)
+
+	var lines []string
+	for _, e := range m.cache {
+		if e.msgIdx == 0 {
+			lines = e.linesSelected
+			break
+		}
+	}
+	if lines == nil {
+		t.Fatal("no entry with msgIdx 0 in cache")
+	}
+	out := strings.Join(lines, "\n")
+	if !strings.Contains(sgrRe.ReplaceAllString(out, ""), "leading plain text") {
+		t.Fatalf("the Block Kit section never reached the render: %q", out)
+	}
+	for _, run := range runsWithoutBackground(out) {
+		if strings.Contains(run, "leading plain text") {
+			t.Errorf("Block Kit run rendered with no background: %q", run)
+		}
 	}
 }

@@ -8,7 +8,7 @@
 //     S (presence menu), R (reaction picker)
 //   - navigation: j/k (selection), Ctrl-D/U (half-page), C-f/b
 //     (page), gg (top), G (bottom), Tab/h/l (focus next/prev),
-//     Ctrl-o/i (nav back/forward through visited channels)
+//     Ctrl-h/k (nav back/forward through visited channels)
 //   - layout toggles: s (sidebar), t (thread)
 //   - message ops: y (copy message), Y/C (copy permalink), E (edit),
 //     D (delete), U (mark unread), m (set mark), ' (jump to mark),

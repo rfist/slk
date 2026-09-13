@@ -209,14 +209,9 @@ func WordWrap(s string, limit int) string {
 // can't see and which would push downstream layout (e.g. the thread
 // compose box) over content above it.
 func wrapLine(buf *strings.Builder, line string, limit int) {
-	// A line that already fits is emitted verbatim. Everything below
-	// goes through strings.Fields, which drops leading indentation and
-	// collapses every internal whitespace run to a single space — fine
-	// for prose that has to be re-flowed anyway, destructive for a line
-	// that did not need re-flowing at all. Code blocks are the visible
-	// casualty: their indentation disappears and the per-word split
-	// fragments the background SGR run into detached patches. Passing
-	// the line through untouched also keeps its escape sequences whole.
+	// Keep fitting lines byte-for-byte. The reflow below intentionally
+	// normalizes overlong prose with strings.Fields; applying it here
+	// would destroy code indentation and fragment ANSI-styled runs.
 	if lipgloss.Width(line) <= limit {
 		buf.WriteString(line)
 		return
@@ -280,9 +275,10 @@ func ReapplyBgAfterResets(text string, style string) string {
 	if style == "" {
 		return text
 	}
-	// lipgloss v2 uses \x1b[m (no 0), but handle both forms
-	text = strings.ReplaceAll(text, "\x1b[m", "\x1b[m"+style)
-	return text
+	// lipgloss v2 emits the short form, but image renderers and other
+	// ANSI producers may emit the explicit zero form.
+	text = strings.ReplaceAll(text, "\x1b[0m", "\x1b[0m"+style)
+	return strings.ReplaceAll(text, "\x1b[m", "\x1b[m"+style)
 }
 
 var (
@@ -675,17 +671,23 @@ func RenderSlackMarkdownWith(text string, opts RenderSlackMarkdownOpts) string {
 	// Handle code blocks first (before other formatting to avoid conflicts)
 	text = codeBlockRe.ReplaceAllStringFunc(text, func(match string) string {
 		inner := codeBlockRe.FindStringSubmatch(match)[1]
-		inner = strings.TrimSpace(inner)
-		// Wrap the block ourselves, to exactly the width the whole
-		// message is about to be wrapped to. Two things depend on it:
-		// the style pads every line out to a full-width background
-		// instead of stopping where the text does, and no line is left
-		// over-long for WordWrap to reflow as prose (which would
-		// collapse the block's indentation — see wrapLine).
-		//
-		// Padding(0, 1) eats one column on each side, so the text is
-		// hard-wrapped to Width-2. Hardwrap, not word wrap: breaking
-		// code at word boundaries moves tokens onto the wrong line.
+		// Remove the line break that separates a fenced block from its
+		// content, not the content's whitespace. strings.TrimSpace would
+		// erase indentation from the first and last code lines.
+		if trimmed, ok := strings.CutPrefix(inner, "\r\n"); ok {
+			inner = trimmed
+		} else {
+			inner = strings.TrimPrefix(inner, "\n")
+		}
+		if trimmed, ok := strings.CutSuffix(inner, "\r\n"); ok {
+			inner = trimmed
+		} else {
+			inner = strings.TrimSuffix(inner, "\n")
+		}
+		// Hard-wrap before styling so WordWrap never reflows code as
+		// prose. Width includes one padding column on each side; setting
+		// it on the style extends the surface background across the line.
+		// Breaking at word boundaries would move code tokens.
 		if w := opts.Width; w > 2 {
 			inner = ansi.Hardwrap(inner, w-2, false)
 			return "\n" + codeBlockStyle().Width(w).Render(inner) + "\n"

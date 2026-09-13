@@ -1,51 +1,71 @@
 // internal/ui/editor.go
 //
-// External-editor compose: Ctrl+G in insert mode suspends the TUI,
-// opens $VISUAL/$EDITOR on a temp file seeded with the current draft,
-// and on a clean exit replaces the draft with the file's contents.
-//
-// The temp file lives in os.TempDir and is removed as soon as the
-// editor returns (success or failure) so drafts don't accumulate on
-// disk. A non-zero editor exit (e.g. vim's :cq) aborts the round-trip
-// and leaves the in-app draft untouched.
+// Ctrl+E edits the compose box in an external editor ($VISUAL /
+// $EDITOR / compose.editor), resolved once at startup by
+// ResolveEditor (see cmd/slk/main.go) and stored on App — never
+// re-read per keypress.
 package ui
 
 import (
+	"errors"
 	"os"
 	"os/exec"
 	"strings"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+
+	"github.com/gammons/slk/internal/debuglog"
 )
 
-// editorFinishedMsg is delivered by the ExecProcess callback when the
-// external editor exits. Path is the temp file to read; Panel records
-// which compose (channel or thread) initiated the round-trip so the
-// result lands in the right draft even if focus changed meanwhile.
-type editorFinishedMsg struct {
-	Path  string
+// getenv returns os.Getenv(key), or def if unset/empty.
+func getenv(key, def string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return def
+}
+
+// ResolveEditor picks $VISUAL, then $EDITOR, then configEditor. No
+// fallback beyond that (e.g. "vi") — it isn't installed by default on
+// Windows.
+func ResolveEditor(configEditor string) (parts []string, ok bool) {
+	parts = strings.Fields(getenv("VISUAL", getenv("EDITOR", configEditor)))
+	return parts, len(parts) > 0
+}
+
+func editorCommand(parts []string, path string) *exec.Cmd {
+	args := append(append([]string{}, parts[1:]...), path)
+	cmd := exec.Command(parts[0], args...)
+	// tea.ExecProcess only fills in Stdin/Stdout/Stderr when unset, and
+	// otherwise falls back to the Program's own output (a non-*os.File
+	// io.Writer wrapping sixel frame correlation) — which forces Go's
+	// exec package to pipe the child through a copy goroutine instead
+	// of a real fd. The editor's own terminal-capability negotiation
+	// (and mouse parsing) breaks without a genuine tty here, same as it
+	// would for any program handed a pipe instead of its real stdout.
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	return cmd
+}
+
+// EditorFinishedMsg reports an external-editor session ending. Path is
+// read back and removed regardless of Err — the file's contents are
+// trusted over the editor's exit code.
+type EditorFinishedMsg struct {
 	Panel Panel
+	Path  string
 	Err   error
 }
 
-// editorCommand returns the external editor to launch: $VISUAL, then
-// $EDITOR, then vi (present on every POSIX system).
-func editorCommand() string {
-	if v := os.Getenv("VISUAL"); v != "" {
-		return v
+func (a *App) openComposeInEditor() tea.Cmd {
+	if len(a.composeEditor) == 0 {
+		return toastWithClear(a,
+			"No editor configured — set $VISUAL, $EDITOR, or compose.editor in config.toml",
+			4*time.Second)
 	}
-	if e := os.Getenv("EDITOR"); e != "" {
-		return e
-	}
-	return "vi"
-}
 
-// beginEditorCompose writes the focused compose's draft to a temp
-// file and returns the ExecProcess cmd that suspends the TUI and
-// launches the editor on it. Returns nil if the temp file can't be
-// created (the draft is never lost — it stays in the textarea).
-func (a *App) beginEditorCompose() tea.Cmd {
 	panel := PanelMessages
 	target := &a.compose
 	if a.focusedPanel == PanelThread && a.threadVisible {
@@ -55,73 +75,56 @@ func (a *App) beginEditorCompose() tea.Cmd {
 
 	f, err := os.CreateTemp("", "slk-compose-*.md")
 	if err != nil {
-		return toastWithClear(a, "Editor failed: "+err.Error(), 3*time.Second)
+		return toastWithClear(a, "Could not open editor: "+err.Error(), 3*time.Second)
 	}
 	path := f.Name()
-	_, werr := f.WriteString(target.Value())
-	cerr := f.Close()
-	if werr != nil || cerr != nil {
+	if _, err := f.WriteString(target.Value()); err != nil {
+		f.Close()
 		os.Remove(path)
-		return toastWithClear(a, "Editor failed: could not write draft", 3*time.Second)
+		return toastWithClear(a, "Could not open editor: "+err.Error(), 3*time.Second)
 	}
-	a.editorTempPath = path
+	if err := f.Close(); err != nil {
+		os.Remove(path)
+		return toastWithClear(a, "Could not open editor: "+err.Error(), 3*time.Second)
+	}
 
-	return tea.ExecProcess(editorExecCmd(path), func(err error) tea.Msg {
-		return editorFinishedMsg{Path: path, Panel: panel, Err: err}
+	target.SetEditingExternally(true)
+	target.SetPlaceholderOverride("Editing in $EDITOR — waiting for it to exit...")
+	debuglog.General("editor: opening %v for %s", a.composeEditor, path)
+
+	cmd := editorCommand(a.composeEditor, path)
+	return tea.ExecProcess(cmd, func(err error) tea.Msg {
+		return EditorFinishedMsg{Panel: panel, Path: path, Err: err}
 	})
 }
 
-// editorExecCmd builds the editor command with all three standard
-// streams bound to the real terminal.
-//
-// This is not decoration, and leaving them nil is the bug it fixes.
-// tea.ExecProcess fills in any stream the caller left nil — stdout
-// becomes the Program's output writer, which for slk is the sixel
-// FrameOutput wrapper, not an *os.File. os/exec only hands a child a
-// real file descriptor when the field IS an *os.File; anything else
-// gets an os.Pipe plus a copying goroutine. So the editor was being
-// launched with a pipe on stdout: isatty fails, TIOCGWINSZ on it fails
-// so the editor sizes itself from a fallback, and every byte it writes
-// takes an extra hop through a mutex-guarded writer.
-//
-// The visible symptom was the editor's own terminal queries coming back
-// as text. A full-screen editor asks the terminal things on startup
-// (OSC 11 for the background colour, then DSR as a sentinel) and reads
-// the answers off stdin within a short window. Routing the query
-// through the pipe delayed it past that window, so the reply —
-// `rgb:2828/2c2c/3434` and friends — arrived after the editor had gone
-// back to treating stdin as keystrokes, and landed in the buffer.
-//
-// Assigning the streams here means ExecProcess leaves them alone.
-func editorExecCmd(path string) *exec.Cmd {
-	c := exec.Command(editorCommand(), path)
-	c.Stdin = os.Stdin
-	c.Stdout = os.Stdout
-	c.Stderr = os.Stderr
-	return c
-}
-
-// applyEditorResult finishes the round-trip: on a clean editor exit
-// the temp file's contents (minus the trailing newline editors append
-// on save) replace the recorded compose's draft. The temp file is
-// always removed, error or not.
-func (a *App) applyEditorResult(m editorFinishedMsg) {
-	defer func() {
-		os.Remove(m.Path)
-		a.editorTempPath = ""
-	}()
-	if m.Err != nil {
-		return
-	}
-	data, err := os.ReadFile(m.Path)
-	if err != nil {
-		return
-	}
-	text := strings.TrimRight(string(data), "\n")
+func reduceEditorFinished(a *App, m EditorFinishedMsg) tea.Cmd {
+	defer os.Remove(m.Path)
 
 	target := &a.compose
 	if m.Panel == PanelThread {
 		target = &a.threadCompose
 	}
-	target.SetValue(text)
+	target.SetEditingExternally(false)
+	target.SetPlaceholderOverride("")
+
+	// A non-nil *exec.ExitError means the editor ran and exited
+	// non-zero — trust the file over that (some editors exit non-zero
+	// on things that still leave a saved draft). Any other error means
+	// it never ran at all (e.g. not found), which the user should hear
+	// about.
+	var exitErr *exec.ExitError
+	launchFailed := m.Err != nil && !errors.As(m.Err, &exitErr)
+	debuglog.General("editor: finished path=%s err=%v launchFailed=%v", m.Path, m.Err, launchFailed)
+
+	content, readErr := os.ReadFile(m.Path)
+	if readErr != nil {
+		return toastWithClear(a, "Editor: could not read draft back: "+readErr.Error(), 3*time.Second)
+	}
+	target.SetValue(strings.TrimRight(string(content), "\n"))
+
+	if launchFailed {
+		return toastWithClear(a, "Could not open editor: "+m.Err.Error(), 4*time.Second)
+	}
+	return nil
 }

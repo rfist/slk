@@ -1,12 +1,5 @@
-// internal/ui/messages/codeblock_wrap_test.go
-//
-// Fenced code blocks survive the message-body wrap. Two defects met
-// here: codeBlockStyle carried no Width, so its surface background
-// stopped wherever each line's text stopped; and WordWrap re-flowed
-// every line through strings.Fields, which drops indentation, collapses
-// whitespace runs, and fragments the background SGR run into detached
-// patches. Together they rendered a pasted code block as ragged
-// highlighted word-blobs instead of a solid box.
+// Fenced code blocks must retain their whitespace and full-width surface
+// background when the message body is wrapped.
 package messages
 
 import (
@@ -46,7 +39,7 @@ func TestCodeBlock_EveryLineFillsTheFullWidth(t *testing.T) {
 }
 
 func TestCodeBlock_PreservesIndentation(t *testing.T) {
-	lines := renderBody(t, "```\nno indent\n    four spaces\n```", 40)
+	lines := renderBody(t, "```\n    four spaces\nno indent\n```", 40)
 
 	var found bool
 	for _, l := range lines {
@@ -60,20 +53,6 @@ func TestCodeBlock_PreservesIndentation(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("indented line missing entirely:\n%q", lines)
-	}
-}
-
-// The whole block must be one unbroken run of background, not one run
-// per word. Counting SGR resets is the cheap proxy: the buggy version
-// emitted one per word because strings.Fields split the styled line.
-func TestCodeBlock_BackgroundIsNotFragmentedPerWord(t *testing.T) {
-	const line = "alpha beta gamma delta epsilon zeta eta theta"
-	out := RenderSlackMarkdownWith("```\n"+line+"\n```", RenderSlackMarkdownOpts{Width: 60})
-	out = WordWrap(out, 60)
-
-	resets := strings.Count(out, "\x1b[m") + strings.Count(out, "\x1b[0m")
-	if words := len(strings.Fields(line)); resets >= words {
-		t.Errorf("got %d SGR resets for %d words — the styled run is being split per word", resets, words)
 	}
 }
 
@@ -98,16 +77,11 @@ func TestWordWrap_FittingLineIsUntouched(t *testing.T) {
 	}
 }
 
-// ...and that re-flowing still happens when a line genuinely does not fit.
+// Lines that exceed the limit still reflow at word boundaries.
 func TestWordWrap_OverlongLineStillReflows(t *testing.T) {
-	got := WordWrap("aaa bbb ccc ddd", 7)
-	if !strings.Contains(got, "\n") {
-		t.Errorf("WordWrap = %q, want it wrapped across lines", got)
-	}
-	for _, l := range strings.Split(got, "\n") {
-		if w := ansi.StringWidth(l); w > 7 {
-			t.Errorf("wrapped line %q is %d wide, want <= 7", l, w)
-		}
+	const want = "aaa bbb\nccc ddd"
+	if got := WordWrap("aaa bbb ccc ddd", 7); got != want {
+		t.Errorf("WordWrap = %q, want %q", got, want)
 	}
 }
 

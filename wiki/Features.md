@@ -21,6 +21,7 @@
 ## Compose
 
 - Multi-line input, `Shift+Enter` for newlines
+- External editor (`Ctrl+E`) — opens the draft in `$VISUAL`, then `$EDITOR`, then `[compose] editor` from config; the edited text replaces the draft when the editor exits
 - Inline `@mention` autocomplete (resolves to `<@UserID>` on send)
 - Special mentions: `@here`, `@channel`, `@everyone`
 - Bracketed paste — paste multi-line text from the system clipboard without it being interpreted as keystrokes
@@ -44,6 +45,11 @@ See [[Terminal Compatibility|Terminal-Compatibility]] for which protocol your te
 
 - Side panel (35% width), opened with `Enter`, toggled with `Ctrl+]`
 - Live thread reply routing, real-time updates
+- Also send to channel: `Ctrl+O` while composing a thread reply toggles Slack's
+  "Also send to #channel" broadcast (`reply_broadcast=true`), and `Alt+Enter`
+  sends with broadcast in a single keystroke. An accent-colored
+  `↪ also send to #channel` line under the input shows when it's armed; the
+  toggle is non-sticky (cleared after send or when opening another thread).
 - Auto-closes on channel switch or narrow terminals
 - **Threads view** (`⚑ Threads` at top of sidebar): scrollable list of every
   thread you authored, replied to, or were @-mentioned in for the active

@@ -239,6 +239,10 @@ type App struct {
 	// native clipboard initialization.
 	clipboardAvailable bool
 
+	// composeEditor is Ctrl+E's editor argv, resolved once at startup
+	// by ui.ResolveEditor (editor.go). Nil means unconfigured.
+	composeEditor []string
+
 	// clipboardRead is the function used by smartPaste to read OS clipboard
 	// contents. Tests inject fakes via SetClipboardReader.
 	clipboardRead clipboardReader
@@ -371,11 +375,6 @@ type App struct {
 	// buildInfo is the human-readable build identity ("slk dev
 	// (abc1234)") shown by :version. Set once at startup by main.
 	buildInfo string
-
-	// editorTempPath is the temp file of an in-flight external-editor
-	// compose round-trip (Ctrl+G). Empty when no editor is open. See
-	// editor.go.
-	editorTempPath string
 
 	// externalUsers tracks which user IDs are Slack Connect / shared-channel
 	// guests. Populated by main.go via SetExternalUsers as users are
@@ -1969,6 +1968,18 @@ func (a *App) openThreadForSelectedMessage() tea.Cmd {
 	return a.openThreadPanel(msg, a.activeChannelID, threadTS)
 }
 
+// threadComposeChannelName resolves the display name for the thread's
+// parent channel so the thread compose's placeholder and the
+// "also send to #channel" broadcast hint show the real channel.
+// Falls back to the generic "channel" when the ID isn't in the
+// mention-resolution map (e.g. DM/MPIM edge cases).
+func (a *App) threadComposeChannelName(channelID string) string {
+	if name, ok := a.channelNames[channelID]; ok && name != "" {
+		return name
+	}
+	return "channel"
+}
+
 // openThreadPanel makes the thread panel visible for (channelID,
 // threadTS) with the given parent row, primes replies from the thread
 // cache, and returns a cmd that fetches authoritative replies. Shared
@@ -1989,7 +2000,10 @@ func (a *App) openThreadPanel(parent messages.MessageItem, channelID, threadTS s
 	a.statusbar.SetInThread(true)
 	a.focusedPanel = PanelThread
 	a.threadPanel.SetThread(parent, nil, channelID, threadTS)
-	a.threadCompose.SetChannel("thread")
+	a.threadCompose.SetChannel(a.threadComposeChannelName(channelID))
+	// A fresh thread must not inherit the previous thread's
+	// "also send to channel" toggle.
+	a.threadCompose.SetBroadcast(false)
 	a.applyThreadUnreadBoundary(channelID, threadTS)
 
 	threads := a.threads
@@ -2200,7 +2214,10 @@ func (a *App) openSelectedThreadCmd(debounce bool) tea.Cmd {
 		ThreadTS: sum.ThreadTS,
 	}
 	a.threadPanel.SetThread(parent, nil, sum.ChannelID, sum.ThreadTS)
-	a.threadCompose.SetChannel("thread")
+	a.threadCompose.SetChannel(a.threadComposeChannelName(sum.ChannelID))
+	// A fresh thread must not inherit the previous thread's
+	// "also send to channel" toggle.
+	a.threadCompose.SetBroadcast(false)
 	// Snapshot the thread's own last-read cursor BEFORE the local mark-
 	// read flips below, so the "── new ──" landmark in the thread panel
 	// reflects what the user had actually seen prior to opening this
@@ -2553,6 +2570,11 @@ func (a *App) SetClipboardAvailable(ok bool) {
 	a.clipboardAvailable = ok
 }
 
+// SetComposeEditor sets Ctrl+E's resolved editor argv (see editor.go).
+func (a *App) SetComposeEditor(editor []string) {
+	a.composeEditor = editor
+}
+
 // SetClipboardReader replaces the clipboard read function. Used by
 // tests to inject canned clipboard contents. Pass nil to restore
 // the default real clipboard reader.
@@ -2593,7 +2615,7 @@ func (a *App) SetReadStateReader(f func() map[string]cache.ReadState) {
 
 // SetWorkspaceUnreadReader installs the callback the workspace rail
 // uses on RefreshUnreads to learn which workspaces have at least one
-// channel with has_unread=true.
+// channel their sidebar would show as unread.
 func (a *App) SetWorkspaceUnreadReader(f func() []string) {
 	a.workspaceRail.SetUnreadReader(f)
 }
