@@ -3,11 +3,13 @@ package channelfinder
 import (
 	"sort"
 	"strings"
+	"time"
 
 	"charm.land/lipgloss/v2"
 	"github.com/gammons/slk/internal/text"
 	"github.com/gammons/slk/internal/ui/messages"
 	"github.com/gammons/slk/internal/ui/overlay"
+	"github.com/gammons/slk/internal/ui/peerstatus"
 	"github.com/gammons/slk/internal/ui/styles"
 	"github.com/muesli/reflow/truncate"
 )
@@ -37,7 +39,9 @@ type Item struct {
 	Name     string
 	Type     string // channel, dm, group_dm, private, threads
 	Presence string // for DMs: active, away
-	Joined   bool   // true if the user is already a member; false for browseable public channels
+	// Status is a DM peer's custom status and DND state.
+	Status peerstatus.Status
+	Joined bool // true if the user is already a member; false for browseable public channels
 	// LastVisited is the unix timestamp (seconds) of the user's most
 	// recent visit to this channel; 0 means never visited. Drives the
 	// recency-based sort used by filter(): empty-query order is by
@@ -629,7 +633,11 @@ func (m Model) renderBox(termWidth int) string {
 			if isSelected {
 				nameStyle = nameStyle.Background(bg).Foreground(styles.Primary).Bold(true)
 			}
-			name = nameStyle.Render(item.Name)
+			label := item.Name
+			if g := item.Status.Glyph(time.Now()); g != "" {
+				label += " " + g
+			}
+			name = nameStyle.Render(label)
 		} else {
 			// Non-joined: dim grey for everything, including the prefix.
 			dim := lipgloss.NewStyle().Background(bg).Foreground(nonJoinedColor)
@@ -711,6 +719,9 @@ func channelPrefix(item Item) string {
 	case "private":
 		return lipgloss.NewStyle().Foreground(styles.Warning).Render("◆")
 	case "dm":
+		if item.Status.InDND(time.Now()) {
+			return lipgloss.NewStyle().Foreground(styles.Warning).Render(peerstatus.DNDGlyph)
+		}
 		if item.Presence == "active" {
 			return lipgloss.NewStyle().Foreground(styles.Accent).Render("●")
 		}
@@ -719,6 +730,16 @@ func channelPrefix(item Item) string {
 		return lipgloss.NewStyle().Foreground(styles.TextMuted).Render("●")
 	default:
 		return lipgloss.NewStyle().Foreground(styles.TextMuted).Render("#")
+	}
+}
+
+// SetStatus updates the custom status and DND shown on the row with the
+// given channel ID. No-op when no row matches.
+func (m *Model) SetStatus(channelID string, st peerstatus.Status) {
+	for i := range m.items {
+		if m.items[i].ID == channelID {
+			m.items[i].Status = st
+		}
 	}
 }
 

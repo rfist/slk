@@ -3,6 +3,9 @@ package channelfinder
 import (
 	"strings"
 	"testing"
+
+	"github.com/gammons/slk/internal/emoji"
+	"github.com/gammons/slk/internal/ui/peerstatus"
 )
 
 func testItems() []Item {
@@ -17,6 +20,28 @@ func testItems() []Item {
 		{ID: "C4", Name: "grant-planning", Type: "private", LastVisited: 300},
 		{ID: "D1", Name: "Alice", Type: "dm", Presence: "active", LastVisited: 200},
 		{ID: "D2", Name: "Bob", Type: "dm", Presence: "away", LastVisited: 100},
+	}
+}
+
+func TestViewShowsPeerStatusAndDND(t *testing.T) {
+	m := New()
+	m.SetItems([]Item{{
+		ID: "D1", Name: "Alice", Type: "dm", Joined: true, Presence: "active",
+		Status: peerstatus.Status{Emoji: ":calendar:", DND: true},
+	}})
+	m.Open()
+
+	got := m.View(80)
+	if !strings.Contains(got, peerstatus.DNDGlyph) {
+		t.Fatalf("finder row does not replace presence with DND:\n%s", got)
+	}
+	if !strings.Contains(got, "Alice "+emoji.CodeMap()[":calendar:"]) {
+		t.Fatalf("finder row does not show the custom status:\n%s", got)
+	}
+
+	m.SetStatus("D1", peerstatus.Status{Huddle: peerstatus.HuddleActive})
+	if got := m.View(80); !strings.Contains(got, "Alice "+peerstatus.HuddleGlyph) {
+		t.Fatalf("finder row does not show the huddle glyph:\n%s", got)
 	}
 }
 

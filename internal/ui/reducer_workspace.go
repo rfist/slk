@@ -208,6 +208,7 @@ func reduceWorkspaceReady(a *App, m WorkspaceReadyMsg) tea.Cmd {
 		// SetUserNames last is the canonical state.
 		a.SetExternalUsers(m.ExternalUsers)
 		a.SetUserNames(m.UserNames)
+		batch = append(batch, a.presence.SetPeers(a, m.UserStatuses))
 		a.SetCustomEmoji(m.CustomEmoji)
 		a.SetUserGroups(m.UserGroups)
 		// Route through the setter so messagepane/threadPanel also learn
@@ -359,6 +360,8 @@ func reduceWorkspaceSwitched(a *App, m WorkspaceSwitchedMsg) tea.Cmd {
 	a.workspaceRail.SelectByID(m.TeamID)
 
 	var batch []tea.Cmd
+	// After resetWindowTree above, so the fresh panes get the statuses.
+	batch = append(batch, a.presence.SetPeers(a, m.UserStatuses))
 	// Restore the last-viewed channel for this workspace if we
 	// have one and it still exists; otherwise fall back to the
 	// first channel in the sidebar. Move the sidebar cursor to
